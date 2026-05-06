@@ -50,14 +50,10 @@ class RepoAnalyzer:
             shutil.rmtree(self.local_path)
         os.makedirs(os.path.dirname(self.local_path), exist_ok=True)
         
-        # Use proxy for GitHub URLs to bypass network issues
         clone_url = self.repo_url
-        if "github.com" in clone_url:
-            # ghproxy.com is a common proxy for github resources
-            clone_url = f"https://ghproxy.com/{clone_url}"
             
         print(f"Cloning {clone_url} into {self.local_path}...")
-        # Add optimized git configs to prevent handshake timeouts
+        # Add optimized git configs to prevent handshake timeouts (OpenSSL mode)
         Repo.clone_from(
             clone_url, 
             self.local_path, 
