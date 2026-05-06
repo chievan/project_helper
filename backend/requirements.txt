@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+langchain
+langchain-openai
+python-dotenv
+sqlalchemy
+sqlmodel
+gitpython
+httpx
+pydantic
+pydantic-settings
+websockets
+jinja2
+python-multipart
+# DeepSeek is compatible with OpenAI API format usually
