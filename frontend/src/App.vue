@@ -2,9 +2,7 @@
 import { ref, onMounted, computed, nextTick } from 'vue'
 import axios from 'axios'
 import { 
-  Github, Search, Send, FileText, MessageSquare, 
-  Loader2, CheckCircle2, LayoutDashboard, History,
-  Clock, Code, Cpu, Layers, Terminal, AlertCircle, Trash2
+  Clock, Code, Cpu, Layers, Terminal, AlertCircle, Trash2, ExternalLink
 } from 'lucide-vue-next'
 import { marked } from 'marked'
 
@@ -19,6 +17,34 @@ const chatHistory = ref<{role: string, content: string}[]>([])
 const historyList = ref<{id: number, url: string, name: string, status: string}[]>([])
 const chatScroll = ref<HTMLElement | null>(null)
 const isChatting = ref(false)
+
+// --- 布局拖拽逻辑 ---
+const sidebarWidth = ref(Number(localStorage.getItem('sidebarWidth')) || 230)
+const chatWidth = ref(Number(localStorage.getItem('chatWidth')) || 400)
+const isResizingSidebar = ref(false)
+const isResizingChat = ref(false)
+
+const startResizingSidebar = () => { isResizingSidebar.value = true; document.body.style.cursor = 'col-resize' }
+const startResizingChat = () => { isResizingChat.value = true; document.body.style.cursor = 'col-resize' }
+
+const handleMouseMove = (e: MouseEvent) => {
+  if (isResizingSidebar.value) {
+    sidebarWidth.value = Math.max(180, Math.min(400, e.clientX))
+  } else if (isResizingChat.value) {
+    const newChatWidth = window.innerWidth - e.clientX
+    chatWidth.value = Math.max(250, Math.min(window.innerWidth * 0.6, newChatWidth))
+  }
+}
+
+const stopResizing = () => {
+  if (isResizingSidebar.value || isResizingChat.value) {
+    localStorage.setItem('sidebarWidth', sidebarWidth.value.toString())
+    localStorage.setItem('chatWidth', chatWidth.value.toString())
+  }
+  isResizingSidebar.value = false
+  isResizingChat.value = false
+  document.body.style.cursor = 'default'
+}
 
 const analysisSteps = computed(() => [
   { id: 'cloning', title: '克隆仓库', desc: '正在从 GitHub 获取源代码...' },
@@ -202,43 +228,25 @@ const scrollToBottom = () => {
 
 onMounted(() => {
   fetchHistory()
+  window.addEventListener('mousemove', handleMouseMove)
+  window.addEventListener('mouseup', stopResizing)
 })
 </script>
 
 <template>
-  <div class="app-container">
-    <!-- Top Header with GitHub Link -->
-    <header class="app-header">
-      <a href="https://github.com/chievan/project_helper" target="_blank" class="top-github-link">
-        <GithubIcon :size="14" />
-        <span>View on GitHub</span>
-      </a>
-    </header>
-
-    <!-- 侧边栏 -->
+  <div class="dashboard-layout" :style="{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr 4px ${chatWidth}px` }">
+    <!-- 左侧边栏 (1) -->
     <aside class="left-sidebar">
       <div class="logo-section">
-        <Cpu class="logo-icon" size="32" />
-        <span class="logo-text">仓库分析助手</span>
-      </div>
-
-      <div class="input-section">
-        <div class="url-input-container">
-          <label class="section-title">开始分析仓库</label>
-          <input 
-            v-model="repoUrl" 
-            type="text" 
-            placeholder="粘贴 GitHub 仓库地址..." 
-            class="custom-input"
-            @keyup.enter="submitRepo"
-          />
-          <button class="analyze-btn" @click="submitRepo" :disabled="isAnalyzing">
-            <Loader2 v-if="isAnalyzing" class="animate-spin" size="18" />
-            <Search v-else size="18" />
-            <span>{{ isAnalyzing ? '正在分析...' : '开始分析' }}</span>
-          </button>
+        <Cpu class="logo-icon" :size="24" />
+        <div class="logo-container">
+          <span class="logo-text">仓库分析助手</span>
+          <a href="https://github.com/chievan/project_helper" target="_blank" class="title-link">
+            <ExternalLink :size="12" />
+          </a>
         </div>
       </div>
+
 
       <div class="history-section">
         <h3 class="section-title">历史记录</h3>
@@ -256,7 +264,6 @@ onMounted(() => {
                 <span class="status-dot" :class="item.status === 'completed' ? 'completed' : 'processing'"></span>
                 {{ item.status === 'completed' ? '已完成' : '分析中' }}
               </div>
-              <!-- 删除按钮与状态同行 -->
               <button 
                 class="delete-action-btn"
                 @click="deleteRepo(item.id, $event)"
@@ -271,24 +278,20 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Sidebar Footer with GitHub Link -->
-      <div class="sidebar-footer">
-        <a href="https://github.com/chievan/project_helper" target="_blank" class="github-link">
-          <GithubIcon :size="14" />
-          <span>GitHub Source</span>
-        </a>
-      </div>
     </aside>
 
-    <!-- 中间主面板 -->
-    <main class="center-panel">
+    <!-- 拖拽条 1 -->
+    <div class="resizer" @mousedown="startResizingSidebar" :class="{ active: isResizingSidebar }"></div>
+
+    <!-- 中间主内容区 (5) -->
+    <main class="main-content">
       <header class="panel-header">
         <div class="repo-info">
-          <Github v-if="repoId" size="20" class="mr-2 inline text-gray-400" />
+          <GithubIcon v-if="repoId" :size="20" class="mr-2 inline text-gray-400" />
           <span class="font-bold text-lg">{{ repoId ? '项目分析报告' : '准备就绪' }}</span>
         </div>
-        <div v-if="isAnalyzing" class="progress-pill bg-gray-800 px-3 py-1 rounded-full text-xs flex items-center gap-2">
-          <Loader2 class="animate-spin" size="12" />
+        <div v-if="isAnalyzing" class="progress-pill bg-gray-200 px-3 py-1 rounded-full text-xs flex items-center gap-2">
+          <Loader2 class="animate-spin" :size="12" />
           {{ Math.round(progress) }}% 已完成
         </div>
       </header>
@@ -296,24 +299,40 @@ onMounted(() => {
       <div class="report-content scrollable">
         <div v-if="report" class="markdown-body fade-in" v-html="marked(report)"></div>
         <div v-else-if="currentStep === 'idle'" class="empty-state flex flex-col items-center justify-center h-full text-center">
-          <Layers size="64" class="text-gray-700 mb-6" />
+          <Layers :size="64" class="text-gray-300 mb-6" />
           <h2 class="text-2xl font-bold mb-2">欢迎使用 AI 仓库分析助手</h2>
           <p class="text-gray-500 max-w-md">在左侧输入 GitHub 仓库地址，AI 将为您深度剖析项目架构、技术栈及核心逻辑。</p>
         </div>
         <div v-else-if="isAnalyzing && !report" class="loading-state flex flex-col items-center justify-center h-full">
-           <Terminal size="48" class="text-green-600 mb-4 animate-pulse" />
+           <Terminal :size="48" class="text-green-600 mb-4 animate-pulse" />
            <p class="text-lg font-medium">AI 正在努力扫描代码库...</p>
            <p class="text-sm text-gray-500">大型项目可能需要 1-2 分钟，请稍候。</p>
         </div>
       </div>
     </main>
 
-    <!-- 右侧分析详情 -->
+    <!-- 拖拽条 2 -->
+    <div class="resizer" @mousedown="startResizingChat" :class="{ active: isResizingChat }"></div>
+
+    <!-- 右侧分析详情 (4) -->
     <aside class="right-sidebar">
       <div class="progress-section">
-        <h3 class="section-title mb-6 flex items-center gap-2">
-          <Terminal size="14" /> 分析流水线
-        </h3>
+        <!-- 新增：水平布局的输入框和按钮 -->
+        <div class="horizontal-input-group mb-6">
+          <input 
+            v-model="repoUrl" 
+            type="text" 
+            placeholder="粘贴 GitHub 仓库地址..." 
+            class="custom-input flex-1"
+            @keyup.enter="submitRepo"
+          />
+          <button class="analyze-btn" @click="submitRepo" :disabled="isAnalyzing">
+            <Loader2 v-if="isAnalyzing" class="animate-spin" :size="16" />
+            <Search v-else :size="16" />
+            <span>{{ isAnalyzing ? '分析中' : '开始' }}</span>
+          </button>
+        </div>
+        
         <div class="timeline">
           <div 
             v-for="(step, index) in analysisSteps" 
@@ -332,11 +351,11 @@ onMounted(() => {
 
       <div class="chat-section">
         <h3 class="section-title mb-4 flex items-center gap-2">
-          <MessageSquare size="14" /> 源码 Q&A
+          <MessageSquare :size="14" /> 源码 Q&A
         </h3>
         <div class="chat-messages scrollable" ref="chatScroll">
           <div v-if="chatHistory.length === 0" class="empty-chat text-center py-8">
-            <MessageSquare size="32" class="text-gray-700 mx-auto mb-2" />
+            <MessageSquare :size="32" class="text-gray-300 mx-auto mb-2" />
             <p class="text-xs text-gray-500">问问我：“这个项目是如何处理权限验证的？”</p>
           </div>
           <div 
@@ -345,7 +364,6 @@ onMounted(() => {
             :class="['message', msg.role]"
           >
             <div v-html="marked(msg.content)"></div>
-            <!-- 动态打字提示点 -->
             <span v-if="msg.role === 'assistant' && isChatting && i === chatHistory.length - 1" class="typing-cursor"></span>
           </div>
         </div>
@@ -358,7 +376,7 @@ onMounted(() => {
             :disabled="!repoId"
           />
           <button class="analyze-btn px-4" @click="sendMessage" :disabled="!repoId">
-            <Send size="18" />
+            <Send :size="18" />
           </button>
         </div>
       </div>
@@ -367,14 +385,14 @@ onMounted(() => {
 </template>
 
 <style>
-/* Global Tailwind-like classes */
+/* Global Utility classes for Light Mode */
 .mr-2 { margin-right: 0.5rem; }
 .inline { display: inline; }
-.text-gray-400 { color: #8b949e; }
-.text-gray-500 { color: #8b949e; }
-.text-gray-700 { color: #30363d; }
-.text-green-500 { color: #238636; }
-.text-green-600 { color: #238636; }
+.text-gray-300 { color: #d1d5db; }
+.text-gray-400 { color: #9ca3af; }
+.text-gray-500 { color: #6b7280; }
+.text-green-500 { color: #10b981; }
+.text-green-600 { color: #059669; }
 .font-bold { font-weight: 700; }
 .text-lg { font-size: 1.125rem; }
 .text-2xl { font-size: 1.5rem; }
@@ -392,7 +410,6 @@ onMounted(() => {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 .animate-spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
 .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
 .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
@@ -401,5 +418,5 @@ onMounted(() => {
 .rounded-full { border-radius: 9999px; }
 .text-xs { font-size: 0.75rem; }
 .gap-2 { gap: 0.5rem; }
-.bg-gray-800 { background-color: #21262d; }
+.bg-gray-200 { background-color: #e5e7eb; }
 </style>
