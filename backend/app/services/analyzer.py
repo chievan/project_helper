@@ -11,6 +11,8 @@ from sqlmodel import Session, select
 from app.core.db import engine
 from datetime import datetime
 
+import asyncio
+
 class RepoAnalyzer:
     def __init__(self, repo_url: str):
         self.repo_url = repo_url
@@ -54,7 +56,9 @@ class RepoAnalyzer:
             
         print(f"Cloning {clone_url} into {self.local_path}...")
         # Add optimized git configs to prevent handshake timeouts (OpenSSL mode)
-        Repo.clone_from(
+        # Use asyncio.to_thread to run the blocking Repo.clone_from without hanging the event loop
+        await asyncio.to_thread(
+            Repo.clone_from,
             clone_url, 
             self.local_path, 
             depth=1,
