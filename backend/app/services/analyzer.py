@@ -45,13 +45,13 @@ class RepoAnalyzer:
                 session.commit()
 
     async def clone_repo(self):
-        self.update_status("cloning", 10.0)
+        self.update_status("cloning", 25.0)
         if os.path.exists(self.local_path):
             shutil.rmtree(self.local_path)
         os.makedirs(os.path.dirname(self.local_path), exist_ok=True)
         print(f"Cloning {self.repo_url} into {self.local_path}...")
         Repo.clone_from(self.repo_url, self.local_path, depth=1)
-        self.update_status("analyzing", 30.0)
+        self.update_status("analyzing", 50.0)
         return self.local_path
 
     async def analyze(self):
@@ -97,7 +97,7 @@ class RepoAnalyzer:
                 HumanMessage(content="Perform a thorough investigation and generate the final comprehensive report in Chinese.")
             ]
             
-            self.update_status("analyzing", 40.0)
+            self.update_status("analyzing", 75.0)
             
             # Manual tool execution loop
             max_iterations = 15
@@ -121,8 +121,8 @@ class RepoAnalyzer:
                     else:
                         messages.append(ToolMessage(content=f"Error: Tool {tool_name} not found.", tool_call_id=tool_call["id"]))
                 
-                # Update progress incrementally
-                self.update_status("analyzing", 40.0 + (i + 1) * 3.0)
+                # Update progress incrementally within the 75% stage
+                self.update_status("analyzing", 75.0 + (i + 1) * 1.5)
 
             # If we hit the max iterations and the last message is a ToolMessage, 
             # we need one final LLM call to synthesize the report.
