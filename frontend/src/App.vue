@@ -262,6 +262,14 @@ onMounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- Sidebar Footer with GitHub Link -->
+      <div class="sidebar-footer">
+        <a href="https://github.com/chievan/project_helper" target="_blank" class="github-link">
+          <GithubIcon :size="14" />
+          <span>GitHub Source</span>
+        </a>
+      </div>
     </aside>
 
     <!-- 中间主面板 -->

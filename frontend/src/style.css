@@ -116,6 +116,30 @@ body {
   display: block;
 }
 
+.empty-history { opacity: 0.5; margin-top: 2rem; }
+
+/* Sidebar Footer */
+.sidebar-footer {
+  padding: 1rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: auto;
+}
+
+.github-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.75rem;
+  transition: color 0.2s;
+  justify-content: center;
+}
+
+.github-link:hover {
+  color: var(--accent-green);
+}
+
 .history-item {
   padding: 0.75rem;
   border-radius: 8px;
