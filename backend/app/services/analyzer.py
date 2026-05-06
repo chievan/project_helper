@@ -57,7 +57,17 @@ class RepoAnalyzer:
             clone_url = f"https://ghproxy.com/{clone_url}"
             
         print(f"Cloning {clone_url} into {self.local_path}...")
-        Repo.clone_from(clone_url, self.local_path, depth=1)
+        # Add optimized git configs to prevent handshake timeouts
+        Repo.clone_from(
+            clone_url, 
+            self.local_path, 
+            depth=1,
+            multi_options=[
+                '--config http.postBuffer=524288000',
+                '--config http.lowSpeedLimit=0',
+                '--config http.lowSpeedTime=999999'
+            ]
+        )
         self.update_status("analyzing", 50.0)
         return self.local_path
 
