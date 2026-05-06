@@ -62,7 +62,8 @@ class RepoAnalyzer:
                 '--config http.postBuffer=524288000',
                 '--config http.lowSpeedLimit=0',
                 '--config http.lowSpeedTime=999999'
-            ]
+            ],
+            allow_unsafe_options=True
         )
         self.update_status("analyzing", 50.0)
         return self.local_path
