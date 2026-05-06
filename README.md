@@ -25,7 +25,7 @@ Project Helper AI 是一款基于 DeepSeek 大模型驱动的开源仓库分析�
 
 ### 1. 克隆项目
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/chievan/project_helper.git
 cd project_helper
 ```
 
