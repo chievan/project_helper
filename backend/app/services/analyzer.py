@@ -80,42 +80,42 @@ class RepoAnalyzer:
             await self.clone_repo()
             
             messages = [
-                SystemMessage(content=f"""You are an expert software architect. Analyze the repository at {self.local_path}.
+                SystemMessage(content=f"""你是一个顶级的软件架构师和技术布道者。
+                你的任务是深度分析位于 {self.local_path} 的代码仓库，并生成一份“傻子都能看懂”的专业分析报告。
                 
-                Your goal is to provide a DEEP and COMPREHENSIVE technical analysis. 
-                You MUST use the provided tools to explore the codebase thoroughly before answering.
+                ### 核心原则：
+                1. **降维打击**：禁止堆砌原始代码。请用通俗的比喻和简洁的语言解释复杂的架构，做到即使技术新人也能秒懂。
+                2. **结构化输出**：严密按照指定的 Markdown 模板输出。
+                3. **深度侦查**：必须先查看目录（list_files），再读取配置（README/package.json/requirements.txt等），最后剖析核心逻辑模块。
                 
-                Steps:
-                1. List files to see the overall structure.
-                2. Read README.md and core configuration files (e.g., package.json, requirements.txt, pyproject.toml).
-                3. Examine the main entry point and core business logic modules.
-                4. Identify the tech stack and data flow.
+                ### 最终报告模板（必须严格遵守）：
+                # 🚀 项目全维度分析报告：{self.repo_name}
                 
-                Your final response MUST be a detailed Markdown report with the following sections:
-                # Project Analysis: {self.repo_name}
+                ## 1. 项目“大白话”概述
+                （用一两句话说清楚这个项目是干嘛的，它解决了什么痛点，价值在哪里）
                 
-                ## 1. Executive Summary
-                High-level overview of the project's purpose and value.
+                ## 2. 技术“兵器谱” (Tech Stack)
+                （清晰列出编程语言、核心框架、数据库、以及该项目依赖的最关键的 3-5 个库）
                 
-                ## 2. Technical Stack
-                Detailed list of languages, frameworks, databases, and key libraries.
+                ## 3. 房子是怎么盖的 (Architecture)
+                （用比喻或简单逻辑解释目录结构的组织方式，以及采用了什么设计模式（如 MVC, 微服务, 插件化等））
                 
-                ## 3. Architecture & Directory Structure
-                Explanation of the project's organization and design patterns used.
+                ## 4. 核心“零部件”解析 (Core Modules)
+                （挑选最关键的几个文件或文件夹，说明它们在系统里分别扮演什么“器官”角色）
                 
-                ## 4. Core Modules & Implementation Details
-                Deep dive into the most important files and their responsibilities.
+                ## 5. 数据是怎么跑的 (Data Flow)
+                （描述一个核心业务流程（如用户请求或任务处理）是如何在代码间流转的）
                 
-                ## 5. Data Flow & Integration
-                How data moves through the system.
+                ## 6. 专家级阅读建议
+                （给新人的“藏宝图”：如果我要快速上手，我该按什么顺序去读代码？）
                 
-                ## 6. Developer Insights & Recommendations
-                Suggestions for improvement or how to get started with the codebase.
+                ## 7. 亮点与改进建议
+                （总结项目的闪光点，以及从架构师角度看可以优化的地方）
                 
-                IMPORTANT: Every time you use a tool that requires 'repo_path', YOU MUST provide: '{self.local_path}'.
-                CRITICAL: The final report MUST be written completely in Chinese (你的最终分析报告必须完全使用中文编写).
+                IMPORTANT: 你必须通过调用工具来获取真实信息。严禁胡编乱造。
+                CRITICAL: 你的最终分析报告必须完全使用中文编写 (The entire report must be in Chinese).
                 """),
-                HumanMessage(content="Perform a thorough investigation and generate the final comprehensive report in Chinese.")
+                HumanMessage(content="请开始深度调查，并按照模板生成那份通俗易懂的中文分析报告。")
             ]
             
             self.update_status("analyzing", 75.0)
@@ -142,14 +142,12 @@ class RepoAnalyzer:
                     else:
                         messages.append(ToolMessage(content=f"Error: Tool {tool_name} not found.", tool_call_id=tool_call["id"]))
                 
-                # Update progress incrementally within the 75% stage
                 self.update_status("analyzing", 75.0 + (i + 1) * 1.5)
 
-            # If we hit the max iterations and the last message is a ToolMessage, 
-            # we need one final LLM call to synthesize the report.
+            # Synthesize final report
             if isinstance(messages[-1], ToolMessage) or (isinstance(messages[-1], AIMessage) and messages[-1].tool_calls):
-                messages.append(HumanMessage(content="You have reached the maximum number of tool calls. Please synthesize all the information gathered so far into the final Markdown report immediately without using any more tools. CRITICAL: The report MUST be written completely in Chinese (你的最终分析报告必须完全使用中文编写)."))
-                final_msg = await self.llm.ainvoke(messages) # Use standard llm without tools bound to force a text response
+                messages.append(HumanMessage(content="你已经完成了调查。现在请立即根据你收集到的所有信息，按照要求的 Markdown 模板撰写那份通俗易懂的中文报告。禁止再使用工具。"))
+                final_msg = await self.llm.ainvoke(messages)
                 report = final_msg.content
             else:
                 report = messages[-1].content
