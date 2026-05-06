@@ -4,11 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import repo, chat
 from app.core.config import settings
 
+from app.core.db import init_db
+
 app = FastAPI(
     title="Project Helper API",
     description="Agentic GitHub Repository Analyzer & Q&A Assistant",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 # CORS Configuration
 app.add_middleware(
