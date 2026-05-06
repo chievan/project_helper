@@ -1,13 +1,13 @@
 :root {
-  --bg-dark: #0f1115;
-  --bg-sidebar: #16181d;
-  --bg-card: #1c1f26;
-  --accent-green: #2ecc71;
-  --accent-green-hover: #2ea043;
-  --text-main: #e2e8f0;
-  --text-muted: #94a3b8;
-  --border-color: #2d333b;
-  --glass-bg: rgba(22, 27, 34, 0.8);
+  --bg-dark: #f8fafc;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --accent-green: #10b981;
+  --accent-green-hover: #059669;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  --glass-bg: rgba(255, 255, 255, 0.8);
   --header-height: 50px;
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
@@ -42,7 +42,7 @@ body {
 /* Layout Dashboard */
 .dashboard-layout {
   display: grid;
-  grid-template-columns: 1fr 5fr 4fr;
+  grid-template-columns: 260px 1fr 400px;
   width: 100%;
   height: 100vh;
   background-color: var(--bg-dark);
