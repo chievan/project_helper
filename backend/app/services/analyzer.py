@@ -49,8 +49,15 @@ class RepoAnalyzer:
         if os.path.exists(self.local_path):
             shutil.rmtree(self.local_path)
         os.makedirs(os.path.dirname(self.local_path), exist_ok=True)
-        print(f"Cloning {self.repo_url} into {self.local_path}...")
-        Repo.clone_from(self.repo_url, self.local_path, depth=1)
+        
+        # Use proxy for GitHub URLs to bypass network issues
+        clone_url = self.repo_url
+        if "github.com" in clone_url:
+            # ghproxy.com is a common proxy for github resources
+            clone_url = f"https://ghproxy.com/{clone_url}"
+            
+        print(f"Cloning {clone_url} into {self.local_path}...")
+        Repo.clone_from(clone_url, self.local_path, depth=1)
         self.update_status("analyzing", 50.0)
         return self.local_path
 
