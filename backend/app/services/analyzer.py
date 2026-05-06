@@ -52,7 +52,10 @@ class RepoAnalyzer:
             shutil.rmtree(self.local_path)
         os.makedirs(os.path.dirname(self.local_path), exist_ok=True)
         
+        # Use ghfast.top as a high-performance proxy for GitHub clones
         clone_url = self.repo_url
+        if "github.com" in clone_url:
+            clone_url = f"https://ghfast.top/{clone_url}"
             
         print(f"Cloning {clone_url} into {self.local_path}...")
         # Add optimized git configs to prevent handshake timeouts (OpenSSL mode)
