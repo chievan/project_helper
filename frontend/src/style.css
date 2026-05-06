@@ -47,13 +47,14 @@ body {
 }
 
 .left-sidebar {
-  min-width: 260px;
+  min-width: 200px; /* 进一步收窄，追求极致比例 */
   background-color: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   height: 100vh;
   z-index: 10;
+  font-size: 12px; /* 侧边栏使用更小的字号以节省空间 */
 }
 
 .main-content {
