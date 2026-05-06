@@ -206,8 +206,16 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="dashboard-layout">
-    <!-- 左侧边栏 -->
+  <div class="app-container">
+    <!-- Top Header with GitHub Link -->
+    <header class="app-header">
+      <a href="https://github.com/chievan/project_helper" target="_blank" class="top-github-link">
+        <GithubIcon :size="14" />
+        <span>View on GitHub</span>
+      </a>
+    </header>
+
+    <!-- 侧边栏 -->
     <aside class="left-sidebar">
       <div class="logo-section">
         <Cpu class="logo-icon" size="32" />
