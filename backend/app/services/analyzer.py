@@ -115,7 +115,13 @@ class RepoAnalyzer:
                     
                     if tool_name in self.tools_map:
                         try:
-                            tool_output = await asyncio.to_thread(self.tools_map[tool_name].invoke, tool_call["args"])
+                            # 核心安全补丁：强行将 AI 填写的 repo_path 替换为当前项目的绝对路径
+                            # 这样 AI 即使尝试越权访问别的目录，也会被重定向回本项目
+                            args = tool_call["args"].copy()
+                            if "repo_path" in args:
+                                args["repo_path"] = self.local_path
+                            
+                            tool_output = await asyncio.to_thread(self.tools_map[tool_name].invoke, args)
                             messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_call["id"]))
                         except Exception as e:
                             messages.append(ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"]))
