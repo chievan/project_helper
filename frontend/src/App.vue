@@ -165,7 +165,7 @@ const listenToAnalysis = (id: number) => {
 }
 
 const selectHistory = async (id: number) => {
-  if (isAnalyzing.value) return
+  // 不再禁止点击，允许后台分析时切换查看其他项目
   repoId.value = id
   report.value = ''
   chatHistory.value = []
@@ -173,13 +173,15 @@ const selectHistory = async (id: number) => {
   
   try {
     const res = await axios.get(`/api/repo/${id}`)
-    report.value = res.data.analysis_report
+    report.value = res.data.analysis_report || ''
     currentStep.value = res.data.status
     progress.value = res.data.progress
     
+    // 如果切换到的项目也在分析中，则挂载监听流
     if (res.data.status !== 'completed' && !res.data.status.startsWith('failed')) {
       listenToAnalysis(id)
     } else {
+      isAnalyzing.value = false // 切换到已完成的项目，停止前端的分析状态显示
       await fetchChatHistory(id)
     }
   } catch (err) {
