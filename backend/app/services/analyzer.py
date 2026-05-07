@@ -24,7 +24,7 @@ class RepoAnalyzer:
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
         self.llm = ChatOpenAI(
-            model="deepseek-chat",
+            model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
             temperature=0,
