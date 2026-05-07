@@ -29,17 +29,17 @@ async def ask_question(data: ChatRequest, session: Session = Depends(get_session
     if not db_repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # 1. Save user message to database
+    # 1. Save user message
     user_msg = ChatMessage(repo_id=data.repo_id, role="user", content=data.message)
     session.add(user_msg)
     session.commit()
     
     analyzer = RepoAnalyzer(db_repo.url)
     
-    # 2. Get recent history for context (last 10 messages)
-    history_statement = select(ChatMessage).where(ChatMessage.repo_id == data.repo_id).order_by(ChatMessage.created_at.desc()).limit(11) # include current
+    # 2. Get history
+    history_statement = select(ChatMessage).where(ChatMessage.repo_id == data.repo_id).order_by(ChatMessage.created_at.desc()).limit(11)
     history_msgs = session.exec(history_statement).all()
-    history_msgs.reverse() # Back to chronological order
+    history_msgs.reverse()
     
     async def event_generator():
         messages = [
@@ -49,64 +49,61 @@ async def ask_question(data: ChatRequest, session: Session = Depends(get_session
             PROJECT ANALYSIS REPORT:
             {db_repo.analysis_report}
             
-            Use the above report and the conversation history to answer. If detail is missing, use tools.
-            
-            SPEED GUIDELINES:
-            1. If you have enough info, ANSWER IMMEDIATELY.
-            2. Be concise.
-            
-            CRITICAL: You MUST answer the user's questions completely in Chinese (你的所有回答必须完全使用中文).
+            Use the report and history to answer. Answer in Chinese. Be concise.
+            CRITICAL: ALWAYS respond in Chinese.
             """)
         ]
         
-        # Add history to LangChain messages
-        for m in history_msgs[:-1]: # exclude the one we just added as it will be the HumanMessage
+        for m in history_msgs[:-1]:
             if m.role == "user":
                 messages.append(HumanMessage(content=m.content))
             else:
                 messages.append(AIMessage(content=m.content))
-        
         messages.append(HumanMessage(content=data.message))
         
-        max_iterations = 5
         final_answer = ""
+        max_iterations = 5
         
         for i in range(max_iterations):
-            ai_msg = await analyzer.llm_with_tools.ainvoke(messages)
-            messages.append(ai_msg)
+            # Use astream_events for granular tool and token control
+            tool_calls = []
+            current_ai_msg = None
             
-            if not ai_msg.tool_calls:
-                final_answer = ai_msg.content
+            async for event in analyzer.llm_with_tools.astream_events(messages, version="v1"):
+                kind = event["event"]
+                
+                if kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        final_answer += content
+                        yield f"data: {json.dumps({'text': content})}\n\n"
+                
+                elif kind == "on_chat_model_end":
+                    current_ai_msg = event["data"]["output"]
+            
+            if current_ai_msg and current_ai_msg.tool_calls:
+                messages.append(current_ai_msg)
+                for tool_call in current_ai_msg.tool_calls:
+                    yield f"data: {json.dumps({'text': f'... (using {tool_call['name']})'})}\n\n"
+                    if tool_call["name"] in analyzer.tools_map:
+                        try:
+                            output = analyzer.tools_map[tool_call["name"]].invoke(tool_args := tool_call["args"])
+                            messages.append(ToolMessage(content=str(output), tool_call_id=tool_call["id"]))
+                        except Exception as e:
+                            messages.append(ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"]))
+            else:
                 break
-                
-            for tool_call in ai_msg.tool_calls:
-                tool_name = tool_call["name"]
-                tool_args = tool_call["args"]
-                
-                if tool_name in analyzer.tools_map:
-                    try:
-                        tool_output = analyzer.tools_map[tool_name].invoke(tool_args)
-                        messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_call["id"]))
-                    except Exception as e:
-                        messages.append(ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"]))
-                else:
-                    messages.append(ToolMessage(content=f"Error: Tool {tool_name} not found.", tool_call_id=tool_call["id"]))
-            
-            yield f"data: {json.dumps({'text': '... (thinking)'})}\n\n"
-            await asyncio.sleep(0.1)
         else:
-            final_msg = await analyzer.llm.ainvoke(messages)
-            final_answer = final_msg.content
+            # Final fallback if tools loop exhausted
+            async for chunk in analyzer.llm.astream(messages):
+                final_answer += chunk.content
+                yield f"data: {json.dumps({'text': chunk.content})}\n\n"
 
-        # 3. Save assistant message to database
-        with Session(analyzer.tools_map['list_files']._engine) if hasattr(analyzer.tools_map['list_files'], '_engine') else session as save_session:
-            # Note: We need a fresh session or use the one from depends carefully in the generator
-            from app.core.db import engine
-            with Session(engine) as fresh_session:
-                assistant_msg = ChatMessage(repo_id=data.repo_id, role="assistant", content=final_answer)
-                fresh_session.add(assistant_msg)
-                fresh_session.commit()
-
-        yield f"data: {json.dumps({'text': final_answer})}\n\n"
+        # 3. Save assistant response
+        from app.core.db import engine
+        with Session(engine) as fresh_session:
+            assistant_msg = ChatMessage(repo_id=data.repo_id, role="assistant", content=final_answer)
+            fresh_session.add(assistant_msg)
+            fresh_session.commit()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
