@@ -2,7 +2,8 @@
 import { ref, onMounted, computed, nextTick } from 'vue'
 import axios from 'axios'
 import { 
-  Clock, Code, Cpu, Layers, Terminal, AlertCircle, Trash2, ExternalLink
+  Clock, Code, Cpu, Layers, Terminal, AlertCircle, Trash2, ExternalLink,
+  MessageSquare, Send, Search, Github as GithubIcon, Loader2
 } from 'lucide-vue-next'
 import { marked } from 'marked'
 
@@ -61,6 +62,19 @@ const activeStepIndex = computed(() => {
   return -1
 })
 
+const fetchChatHistory = async (id: number) => {
+  try {
+    const res = await axios.get(`/api/chat/history/${id}`)
+    chatHistory.value = res.data.map((m: any) => ({
+      role: m.role,
+      content: m.content
+    }))
+    scrollToBottom()
+  } catch (err) {
+    console.error('Failed to fetch chat history:', err)
+  }
+}
+
 const fetchHistory = async () => {
   try {
     const res = await axios.get('/api/repo/all/list')
@@ -100,6 +114,10 @@ const selectHistory = async (id: number) => {
     report.value = res.data.analysis_report
     currentStep.value = res.data.status
     progress.value = res.data.progress
+    
+    // 关键：切换时加载该项目的聊天历史
+    await fetchChatHistory(id)
+    
     isAnalyzing.value = false
   } catch (err) {
     console.error(err)
