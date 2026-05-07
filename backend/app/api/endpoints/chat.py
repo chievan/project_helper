@@ -69,7 +69,7 @@ async def ask_question(data: ChatRequest, session: Session = Depends(get_session
             tool_calls = []
             current_ai_msg = None
             
-            async for event in analyzer.llm_with_tools.astream_events(messages, version="v1"):
+            async for event in analyzer.llm_with_tools.astream_events(messages, version="v2"):
                 kind = event["event"]
                 
                 if kind == "on_chat_model_stream":
