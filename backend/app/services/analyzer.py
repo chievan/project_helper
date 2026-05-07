@@ -107,9 +107,11 @@ class RepoAnalyzer:
                     
                 for tool_call in ai_msg.tool_calls:
                     tool_name = tool_call["name"]
-                    # 关键：实时告诉前端 AI 在干什么
+                    # 关键：同时推送到前端和服务器后台日志
                     detail = tool_call['args'].get('file_path', tool_name)
-                    yield json.dumps({"type": "log", "message": f"🔍 正在深入解析: {detail}"})
+                    log_msg = f"🔍 正在深入解析: {detail}"
+                    print(log_msg)
+                    yield json.dumps({"type": "log", "message": log_msg})
                     
                     if tool_name in self.tools_map:
                         try:

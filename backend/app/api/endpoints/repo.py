@@ -61,7 +61,15 @@ async def stream_repo_analysis(repo_id: int, session: Session = Depends(get_sess
             yield f"data: {event}\n\n"
             await asyncio.sleep(0.01) # Small sleep to ensure smooth flow
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @router.get("/{repo_id}")
 async def get_repo_status(repo_id: int, session: Session = Depends(get_session)):
