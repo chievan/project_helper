@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import repo, chat
+from app.api.endpoints import repo, chat, github
 from app.core.config import settings
 
 from app.core.db import init_db
@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 # Include Routers
 app.include_router(repo.router, prefix="/api/repo", tags=["Repository"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(github.router, prefix="/api/github", tags=["GitHub"])
 
 # Static Files Serving for Production
 # This assumes the frontend is built into ../frontend/dist

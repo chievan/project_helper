@@ -3,7 +3,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import axios from 'axios'
 import { 
   Clock, Code, Cpu, Layers, Terminal, AlertCircle, Trash2, ExternalLink,
-  MessageSquare, Send, Search, Github as GithubIcon, Loader2
+  MessageSquare, Send, Search, Github as GithubIcon, Loader2, Flame, TrendingUp, Star
 } from 'lucide-vue-next'
 import { marked } from 'marked'
 
@@ -25,6 +25,8 @@ const chatHistory = ref<{role: string, content: string}[]>([])
 const historyList = ref<{id: number, url: string, name: string, status: string}[]>([])
 const chatScroll = ref<HTMLElement | null>(null)
 const isChatting = ref(false)
+const trendingRepos = ref<any[]>([])
+const isFetchingTrending = ref(false)
 
 // --- 布局拖拽逻辑 ---
 const sidebarWidth = ref(Number(localStorage.getItem('sidebarWidth')) || 230)
@@ -89,6 +91,23 @@ const fetchHistory = async () => {
   } catch (err) {
     console.error(err)
   }
+}
+
+const fetchTrending = async () => {
+  isFetchingTrending.value = true
+  try {
+    const res = await axios.get('/api/github/trending')
+    trendingRepos.value = res.data
+  } catch (err) {
+    console.error('Failed to fetch trending:', err)
+  } finally {
+    isFetchingTrending.value = false
+  }
+}
+
+const quickAnalyze = (url: string) => {
+  repoUrl.value = url
+  submitRepo()
 }
 
 const deleteRepo = async (id: number, event: Event) => {
@@ -286,6 +305,7 @@ const scrollToBottom = () => {
 
 onMounted(() => {
   fetchHistory()
+  fetchTrending()
   window.addEventListener('mousemove', handleMouseMove)
   window.addEventListener('mouseup', stopResizing)
 })
@@ -356,10 +376,53 @@ onMounted(() => {
 
       <div class="report-content scrollable">
         <div v-if="report" class="markdown-body fade-in" v-html="marked(report)"></div>
-        <div v-else-if="currentStep === 'idle'" class="empty-state flex flex-col items-center justify-center h-full text-center">
-          <Layers :size="64" class="text-gray-300 mb-6" />
-          <h2 class="text-2xl font-bold mb-2">欢迎使用 AI 仓库分析助手</h2>
-          <p class="text-gray-500 max-w-md">在左侧输入 GitHub 仓库地址，AI 将为您深度剖析项目架构、技术栈及核心逻辑。</p>
+        <div v-else-if="currentStep === 'idle'" class="empty-state-container h-full">
+          <div class="welcome-banner text-center py-12">
+            <Layers :size="48" class="text-green-500 mb-4 mx-auto" />
+            <h2 class="text-2xl font-bold mb-2">欢迎使用 AI 仓库分析助手</h2>
+            <p class="text-gray-500 max-w-md mx-auto">深度剖析代码架构、技术栈及核心逻辑</p>
+          </div>
+
+          <div class="trending-section px-8 pb-12">
+            <div class="flex items-center justify-between mb-6">
+              <h3 class="section-title flex items-center gap-2">
+                <Flame :size="16" class="text-orange-500" /> GitHub 今日热榜
+              </h3>
+              <button @click="fetchTrending" class="text-xs text-gray-400 hover:text-green-500 flex items-center gap-1 transition-colors">
+                <TrendingUp :size="12" /> 刷新
+              </button>
+            </div>
+
+            <div v-if="isFetchingTrending" class="flex flex-col items-center justify-center py-12">
+              <Loader2 class="animate-spin text-gray-300 mb-2" :size="32" />
+              <p class="text-xs text-gray-400">正在获取最新热榜...</p>
+            </div>
+
+            <div v-else class="trending-grid">
+              <div v-for="repo in trendingRepos" :key="repo.full_name" class="trending-card fade-in">
+                <div class="card-header">
+                  <div class="repo-meta">
+                    <span class="owner-name">{{ repo.owner }} /</span>
+                    <h4 class="repo-title">{{ repo.name }}</h4>
+                  </div>
+                  <button @click="quickAnalyze(repo.url)" class="quick-analyze-btn" title="立即分析">
+                    <Search :size="14" />
+                  </button>
+                </div>
+                <p class="repo-desc">{{ repo.description || '暂无描述' }}</p>
+                <div class="card-footer">
+                  <div class="footer-stat">
+                    <span class="lang-dot"></span>
+                    <span>{{ repo.language }}</span>
+                  </div>
+                  <div class="footer-stat">
+                    <Star :size="12" />
+                    <span>{{ repo.stars }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div v-else-if="isAnalyzing && !report" class="loading-state flex flex-col items-center justify-center h-full">
            <Terminal :size="48" class="text-green-600 mb-4 animate-pulse" />
