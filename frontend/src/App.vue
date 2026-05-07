@@ -11,6 +11,12 @@ const repoUrl = ref('')
 const isAnalyzing = ref(false)
 const currentStep = ref('idle')
 const progress = ref(0)
+const statusMap: Record<string, string> = {
+  'cloning': '正在克隆仓库',
+  'analyzing': '正在分析代码架构',
+  'generating_report': '正在整合结果并生成报告',
+  'completed': '分析完成'
+}
 const repoId = ref<number | null>(null)
 const report = ref('')
 const analysisLog = ref<string[]>([])
@@ -49,17 +55,17 @@ const stopResizing = () => {
 }
 
 const analysisSteps = computed(() => [
-  { id: 'cloning', title: '克隆仓库', desc: '正在从 GitHub 获取源代码...' },
-  { id: 'analyzing', title: '分析架构', desc: '扫描目录结构与技术栈...' },
-  { id: 'modules', title: '模块映射', desc: '识别核心逻辑与数据流...' },
-  { id: 'completed', title: '生成报告', desc: '正在整理架构分析见解...' }
+  { id: 'cloning', title: '克隆仓库', desc: '获取代码库中...' },
+  { id: 'analyzing', title: '分析架构', desc: '梳理目录与技术栈...' },
+  { id: 'modules', title: '模块映射', desc: '追踪核心逻辑流...' },
+  { id: 'completed', title: '生成报告', desc: '整理见解撰写报告...' }
 ])
 
 const activeStepIndex = computed(() => {
   if (currentStep.value === 'cloning') return 0
-  if (currentStep.value === 'analyzing') return 1
-  if (currentStep.value.startsWith('analyzing')) return 2
-  if (currentStep.value === 'completed') return 3
+  if (currentStep.value === 'analyzing' || currentStep.value.startsWith('analyzing')) return 1
+  if (currentStep.value === 'modules') return 2
+  if (currentStep.value === 'generating_report' || currentStep.value === 'completed') return 3
   return -1
 })
 
@@ -329,7 +335,7 @@ onMounted(() => {
         </div>
         <div v-if="isAnalyzing" class="progress-pill bg-gray-200 px-3 py-1 rounded-full text-xs flex items-center gap-2">
           <Loader2 class="animate-spin" :size="12" />
-          {{ Math.round(progress) }}% 已完成
+          {{ statusMap[currentStep] || '正在分析' }} ({{ Math.round(progress) }}%)
         </div>
       </header>
 
@@ -342,7 +348,7 @@ onMounted(() => {
         </div>
         <div v-else-if="isAnalyzing && !report" class="loading-state flex flex-col items-center justify-center h-full">
            <Terminal :size="48" class="text-green-600 mb-4 animate-pulse" />
-           <p class="text-lg font-medium">AI 正在深度侦查代码库...</p>
+           <p class="text-lg font-medium">{{ currentStep === 'generating_report' ? 'AI 正在奋笔疾书，撰写深度报告...' : 'AI 正在深度侦查代码库...' }}</p>
            <div class="analysis-logs mt-4 w-full max-w-sm">
              <div v-for="(log, idx) in analysisLog" :key="idx" class="log-entry text-xs text-gray-500 mb-1 flex items-center gap-2">
                <span class="w-1 h-1 bg-green-500 rounded-full"></span>
