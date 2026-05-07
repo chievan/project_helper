@@ -47,3 +47,22 @@
 
 - **外科手术式修改**：保持代码整洁，仅对必要部分进行微创手术。
 - **状态驱动**：确保前后端状态实时同步，追求极致的用户体验。
+
+---
+
+## 🏗 服务维护 (Server Maintenance)
+
+在服务器（如 Ubuntu）上部署后，使用以下组合命令进行一键更新与重启：
+
+```bash
+# 进入项目根目录执行
+cd /opt/project_helper && \
+git pull https://ghfast.top/https://github.com/chievan/project_helper main && \
+cd frontend && npm install && npm run build && \
+cd /opt/project_helper/backend && \
+pm2 restart project_helper
+```
+
+> [!NOTE]
+> - **Git 加速**：使用了 `ghfast.top` 镜像以确保在服务器环境下快速拉取代码。
+> - **PM2 进程**：重启命令仅针对 `project_helper` 实例，不影响服务器上其他服务。
