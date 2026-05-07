@@ -1,40 +1,17 @@
 import os
 import shutil
 import json
-import asyncio
 from git import Repo
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from app.core.config import settings
 from app.services.tools import list_files, read_file_content, search_code_snippet, web_search
 from app.models.repo import Repository
 from sqlmodel import Session, select
 from app.core.db import engine
 from datetime import datetime
-from typing import Optional, Any
 
-# 自定义 ChatOpenAI 类以兼容 DeepSeek 的 reasoning_content 字段
-class DeepSeekChat(ChatOpenAI):
-    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
-        dict_msg = super()._convert_message_to_dict(message)
-        if isinstance(message, AIMessage):
-            # 优先从 additional_kwargs 中读取思考过程
-            reasoning = message.additional_kwargs.get("reasoning_content") or message.additional_kwargs.get("reasoning")
-            if reasoning:
-                dict_msg["reasoning_content"] = reasoning
-        return dict_msg
-
-    def _create_chat_result(self, *args: Any, **kwargs: Any) -> ChatResult:
-        result = super()._create_chat_result(*args, **kwargs)
-        # 从原始响应中提取推理内容并持久化到 AIMessage 对象中
-        response = args[0] if args else kwargs.get("response")
-        if response and hasattr(response, "choices") and response.choices:
-            raw_msg = response.choices[0].message
-            reasoning = getattr(raw_msg, "reasoning_content", None) or (raw_msg.get("reasoning_content") if isinstance(raw_msg, dict) else None)
-            if reasoning:
-                result.generations[0].message.additional_kwargs["reasoning_content"] = reasoning
-        return result
+import asyncio
 
 class RepoAnalyzer:
     def __init__(self, repo_url: str, repo_id: int = None):
@@ -46,7 +23,7 @@ class RepoAnalyzer:
         # Resolve path relative to current working directory (server-friendly)
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
-        self.llm = DeepSeekChat(
+        self.llm = ChatOpenAI(
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
@@ -86,7 +63,8 @@ class RepoAnalyzer:
             clone_url = f"https://ghfast.top/{clone_url}"
             
         print(f"Cloning {clone_url} into {self.local_path}...")
-        # Add optimized git configs to prevent handshake timeouts
+        # Add optimized git configs to prevent handshake timeouts (OpenSSL mode)
+        # Use asyncio.to_thread to run the blocking Repo.clone_from without hanging the event loop
         await asyncio.to_thread(
             Repo.clone_from,
             clone_url, 
@@ -123,14 +101,14 @@ class RepoAnalyzer:
                 HumanMessage(content="请开始深度调查，并按照模板生成中文分析报告。")
             ]
             
-            # 2. 深度分析循环 (使用 DeepSeekChat 确保思考过程不丢失)
+            # 2. 深度分析循环 (使用标准模型进行工具调用，保证稳定性)
             iteration = 0
             max_iterations = 15
             while iteration < max_iterations:
                 iteration += 1
                 
-                # 工具调用阶段使用指定的分析模型 (已应用 400 修复类)
-                chat_llm = DeepSeekChat(
+                # 工具调用阶段使用指定的分析模型
+                chat_llm = ChatOpenAI(
                     model=settings.DEEPSEEK_ANALYSIS_MODEL,
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
@@ -163,12 +141,13 @@ class RepoAnalyzer:
                 
                 yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + iteration * 2.0})
 
-            # 3. 报告生成阶段
-            yield json.dumps({"type": "log", "message": "🔍 调查结束，正在整合调查结果..."})
+            # 3. 报告生成阶段 (使用 Pro 模型进行深度整合)
+            yield json.dumps({"type": "log", "message": "🔍 调查结束，正在使用 Pro 模型整合调查结果..."})
             yield json.dumps({"type": "status", "status": "generating_report", "progress": 95.0})
             messages.append(HumanMessage(content="调查结束。现在请立即按照模板输出最终的中文报告。"))
             
             final_report = ""
+            # 此处 self.llm 已经是 settings.DEEPSEEK_MODEL (即 v4-pro)
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
                     final_report += chunk.content
