@@ -13,6 +13,7 @@ const currentStep = ref('idle')
 const progress = ref(0)
 const repoId = ref<number | null>(null)
 const report = ref('')
+const analysisLog = ref<string[]>([])
 const chatMessage = ref('')
 const chatHistory = ref<{role: string, content: string}[]>([])
 const historyList = ref<{id: number, url: string, name: string, status: string}[]>([])
@@ -102,12 +103,47 @@ const deleteRepo = async (id: number, event: Event) => {
   }
 }
 
+const listenToAnalysis = (id: number) => {
+  isAnalyzing.value = true
+  analysisLog.value = []
+  
+  const eventSource = new EventSource(`/api/repo/events/${id}`)
+  
+  eventSource.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    
+    if (data.type === 'status') {
+      currentStep.value = data.status
+      progress.value = data.progress
+      if (data.status === 'completed') {
+        eventSource.close()
+        isAnalyzing.value = false
+        fetchHistory()
+      }
+    } else if (data.type === 'log') {
+      analysisLog.value.push(data.message)
+      if (analysisLog.value.length > 5) analysisLog.value.shift()
+    } else if (data.type === 'report_token') {
+      report.value += data.text
+    } else if (data.type === 'error') {
+      eventSource.close()
+      isAnalyzing.value = false
+      currentStep.value = 'failed'
+    }
+  }
+  
+  eventSource.onerror = () => {
+    eventSource.close()
+    isAnalyzing.value = false
+  }
+}
+
 const selectHistory = async (id: number) => {
   if (isAnalyzing.value) return
   repoId.value = id
   report.value = ''
   chatHistory.value = []
-  isAnalyzing.value = true
+  analysisLog.value = []
   
   try {
     const res = await axios.get(`/api/repo/${id}`)
@@ -115,13 +151,13 @@ const selectHistory = async (id: number) => {
     currentStep.value = res.data.status
     progress.value = res.data.progress
     
-    // 关键：切换时加载该项目的聊天历史
-    await fetchChatHistory(id)
-    
-    isAnalyzing.value = false
+    if (res.data.status !== 'completed' && !res.data.status.startsWith('failed')) {
+      listenToAnalysis(id)
+    } else {
+      await fetchChatHistory(id)
+    }
   } catch (err) {
     console.error(err)
-    isAnalyzing.value = false
   }
 }
 
@@ -133,47 +169,19 @@ const submitRepo = async () => {
   progress.value = 10
   report.value = ''
   chatHistory.value = []
+  analysisLog.value = []
   
   try {
     const res = await axios.post('/api/repo/submit', { url })
     repoId.value = res.data.repo_id
     repoUrl.value = ''
-    
-    if (res.data.cached) {
-      await fetchStatus()
-    } else {
-      pollStatus()
-    }
+    listenToAnalysis(res.data.repo_id)
     await fetchHistory()
   } catch (err) {
     console.error(err)
     isAnalyzing.value = false
     currentStep.value = 'failed'
   }
-}
-
-const pollStatus = () => {
-  const timer = setInterval(async () => {
-    if (!repoId.value) return
-    try {
-      const res = await axios.get(`/api/repo/${repoId.value}`)
-      progress.value = res.data.progress
-      currentStep.value = res.data.status
-      
-      if (res.data.status === 'completed') {
-        clearInterval(timer)
-        report.value = res.data.analysis_report
-        isAnalyzing.value = false
-        fetchHistory()
-      } else if (res.data.status.startsWith('failed')) {
-        clearInterval(timer)
-        isAnalyzing.value = false
-      }
-    } catch (err) {
-      clearInterval(timer)
-      isAnalyzing.value = false
-    }
-  }, 2000)
 }
 
 const fetchStatus = async () => {
@@ -323,8 +331,14 @@ onMounted(() => {
         </div>
         <div v-else-if="isAnalyzing && !report" class="loading-state flex flex-col items-center justify-center h-full">
            <Terminal :size="48" class="text-green-600 mb-4 animate-pulse" />
-           <p class="text-lg font-medium">AI 正在努力扫描代码库...</p>
-           <p class="text-sm text-gray-500">大型项目可能需要 1-2 分钟，请稍候。</p>
+           <p class="text-lg font-medium">AI 正在深度侦查代码库...</p>
+           <div class="analysis-logs mt-4 w-full max-w-sm">
+             <div v-for="(log, idx) in analysisLog" :key="idx" class="log-entry text-xs text-gray-500 mb-1 flex items-center gap-2">
+               <span class="w-1 h-1 bg-green-500 rounded-full"></span>
+               {{ log }}
+             </div>
+           </div>
+           <p class="text-xs text-gray-400 mt-6">大型项目可能需要 1-2 分钟，请稍候。</p>
         </div>
       </div>
     </main>

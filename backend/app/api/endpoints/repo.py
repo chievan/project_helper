@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 from app.core.db import get_session
 from app.models.repo import Repository
 from app.services.analyzer import RepoAnalyzer
 from pydantic import BaseModel
 from datetime import datetime
+import asyncio
+import json
 
 router = APIRouter()
 
@@ -49,6 +52,27 @@ async def run_analysis(url: str):
         print(f"Background analysis failed: {e}")
         # Status update is handled inside analyzer.analyze() usually, 
         # but if it fails before that, we should ensure it's marked as failed.
+
+@router.get("/events/{repo_id}")
+async def stream_repo_analysis(repo_id: int, session: Session = Depends(get_session)):
+    db_repo = session.get(Repository, repo_id)
+    if not db_repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    if db_repo.status == "completed":
+        # If already completed, just send one final event
+        async def completed_gen():
+            yield f"data: {json.dumps({'type': 'status', 'status': 'completed', 'progress': 100.0})}\n\n"
+        return StreamingResponse(completed_gen(), media_type="text/event-stream")
+
+    analyzer = RepoAnalyzer(db_repo.url)
+    
+    async def event_generator():
+        async for event in analyzer.analyze_stream():
+            yield f"data: {event}\n\n"
+            await asyncio.sleep(0.01) # Small sleep to ensure smooth flow
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @router.get("/{repo_id}")
 async def get_repo_status(repo_id: int, session: Session = Depends(get_session)):
