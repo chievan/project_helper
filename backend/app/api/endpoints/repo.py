@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 from app.core.db import get_session
@@ -8,39 +8,82 @@ from pydantic import BaseModel
 from datetime import datetime
 import asyncio
 import json
+from typing import Dict, List, Any
 
 router = APIRouter()
 
 class RepoSubmit(BaseModel):
     url: str
 
+# 全局任务管理器：解耦“分析进程”与“浏览器连接”
+class AnalysisManager:
+    def __init__(self):
+        self.active_tasks: Dict[int, asyncio.Task] = {}
+        self.subscribers: Dict[int, List[asyncio.Queue]] = {}
+        self.logs_cache: Dict[int, List[Dict[str, Any]]] = {}
+
+    async def get_or_create_task(self, repo_id: int, url: str):
+        # 如果任务已经在跑了，直接返回
+        if repo_id in self.active_tasks and not self.active_tasks[repo_id].done():
+            return
+        
+        # 否则启动一个全新的、持久的后台任务
+        self.logs_cache[repo_id] = []
+        task = asyncio.create_task(self._run_analysis(repo_id, url))
+        self.active_tasks[repo_id] = task
+
+    async def _run_analysis(self, repo_id: int, url: str):
+        analyzer = RepoAnalyzer(url)
+        try:
+            async for event_str in analyzer.analyze_stream():
+                event = json.loads(event_str)
+                # 存入历史缓存
+                self.logs_cache[repo_id].append(event)
+                # 广播给当前所有正在看直播的人
+                if repo_id in self.subscribers:
+                    for q in self.subscribers[repo_id]:
+                        await q.put(event)
+        except Exception as e:
+            print(f"Manager analysis failed: {e}")
+        finally:
+            # 即使直播结束，任务记录也保留一段时间
+            pass
+
+    async def subscribe(self, repo_id: int):
+        q = asyncio.Queue()
+        # 关键：新进场的人先补课（发送历史缓存）
+        if repo_id in self.logs_cache:
+            for event in self.logs_cache[repo_id]:
+                await q.put(event)
+        
+        if repo_id not in self.subscribers:
+            self.subscribers[repo_id] = []
+        self.subscribers[repo_id].append(q)
+        return q
+
+    def unsubscribe(self, repo_id: int, q: asyncio.Queue):
+        if repo_id in self.subscribers:
+            self.subscribers[repo_id].remove(q)
+
+manager = AnalysisManager()
+
 @router.post("/submit")
-async def submit_repo(data: RepoSubmit, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    # Check cache
+async def submit_repo(data: RepoSubmit, session: Session = Depends(get_session)):
     statement = select(Repository).where(Repository.url == data.url)
     db_repo = session.exec(statement).first()
     
-    if db_repo and db_repo.status == "completed":
-        return {"message": "Project already analyzed", "repo_id": db_repo.id, "cached": True}
-    
     if not db_repo:
-        # Initial entry
         parts = data.url.rstrip("/").split("/")
         name = parts[-1].replace(".git", "")
         owner = parts[-2]
-        db_repo = Repository(url=data.url, name=name, owner=owner, status="cloning", progress=10.0)
+        db_repo = Repository(url=data.url, name=name, owner=owner, status="pending", progress=0.0)
         session.add(db_repo)
         session.commit()
         session.refresh(db_repo)
-    else:
-        db_repo.status = "cloning"
-        db_repo.progress = 10.0
-        db_repo.updated_at = datetime.utcnow()
-        session.add(db_repo)
-        session.commit()
-
-    # Analysis will be triggered by the SSE events endpoint to support streaming
-    return {"message": "Analysis ready", "repo_id": db_repo.id, "cached": False}
+    
+    # 异步预热分析任务
+    await manager.get_or_create_task(db_repo.id, data.url)
+    return {"message": "Analysis started", "repo_id": db_repo.id}
 
 @router.get("/events/{repo_id}")
 async def stream_repo_analysis(repo_id: int, session: Session = Depends(get_session)):
@@ -48,18 +91,25 @@ async def stream_repo_analysis(repo_id: int, session: Session = Depends(get_sess
     if not db_repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    if db_repo.status == "completed":
-        # If already completed, just send one final event
-        async def completed_gen():
-            yield f"data: {json.dumps({'type': 'status', 'status': 'completed', 'progress': 100.0})}\n\n"
-        return StreamingResponse(completed_gen(), media_type="text/event-stream")
-
-    analyzer = RepoAnalyzer(db_repo.url)
+    # 确保后台任务正在运行
+    await manager.get_or_create_task(repo_id, db_repo.url)
+    
+    # 接入订阅流
+    q = await manager.subscribe(repo_id)
     
     async def event_generator():
-        async for event in analyzer.analyze_stream():
-            yield f"data: {event}\n\n"
-            await asyncio.sleep(0.01) # Small sleep to ensure smooth flow
+        try:
+            while True:
+                try:
+                    # 30秒心跳检查
+                    event = await asyncio.wait_for(q.get(), timeout=30.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                    if event.get("status") == "completed":
+                        break
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            manager.unsubscribe(repo_id, q)
 
     return StreamingResponse(
         event_generator(), 
