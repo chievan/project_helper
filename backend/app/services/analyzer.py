@@ -14,30 +14,39 @@ from app.core.db import engine
 from datetime import datetime
 from typing import Optional, Any, List, Dict
 
-# 官方协议完全兼容类
+# 针对 langchain-openai 0.3.0 深度定制的 DeepSeekChat
 class DeepSeekChat(ChatOpenAI):
-    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
-        dict_msg = super()._convert_message_to_dict(message)
-        if isinstance(message, AIMessage):
-            reasoning = (
-                message.additional_kwargs.get("reasoning_content") or 
-                message.additional_kwargs.get("reasoning")
-            )
-            if reasoning:
-                dict_msg["reasoning_content"] = reasoning
-                print(f"DEBUG: [Request] >>> INJECTED reasoning_content (len: {len(reasoning)})")
-        return dict_msg
+    # 终极出口封堵：直接修改发往 API 的最终参数字典
+    def _convert_messages_to_params(self, messages: List[BaseMessage], **kwargs: Any) -> Dict[str, Any]:
+        params = super()._convert_messages_to_params(messages, **kwargs)
+        
+        # 遍历消息，强制将思考过程注入对应的 API 字典中
+        for i, m in enumerate(messages):
+            if isinstance(m, AIMessage):
+                reasoning = (
+                    m.additional_kwargs.get("reasoning_content") or 
+                    m.additional_kwargs.get("reasoning")
+                )
+                if reasoning:
+                    # params["messages"] 对应的是发给 OpenAI SDK 的 dict 列表
+                    params["messages"][i]["reasoning_content"] = reasoning
+                    print(f"DEBUG: [Protocol] >>> FORCED reasoning_content into payload (len: {len(reasoning)})")
+        
+        return params
 
     def _create_chat_result(self, *args: Any, **kwargs: Any) -> ChatResult:
         result = super()._create_chat_result(*args, **kwargs)
         response = args[0] if args else kwargs.get("response")
+        
         if response and hasattr(response, "choices") and response.choices:
             raw_msg = response.choices[0].message
+            # 兼容对象式和字典式响应
             reasoning = getattr(raw_msg, "reasoning_content", None)
             if not reasoning and isinstance(raw_msg, dict):
                 reasoning = raw_msg.get("reasoning_content")
+            
             if reasoning:
-                print(f"DEBUG: [Response] <<< CAPTURED reasoning_content (len: {len(reasoning)})")
+                print(f"DEBUG: [Protocol] <<< CAPTURED reasoning_content (len: {len(reasoning)})")
                 result.generations[0].message.additional_kwargs["reasoning_content"] = reasoning
         return result
 
@@ -49,12 +58,12 @@ class RepoAnalyzer:
         self.owner = repo_url.split("/")[-2]
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
+        # 显式参数传递
         self.llm = DeepSeekChat(
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
             temperature=0,
-            # 显式传入以消除 Warning
             extra_body={"thinking": {"type": "enabled"}},
             reasoning_effort="high"
         )
@@ -99,17 +108,9 @@ class RepoAnalyzer:
             await self.clone_repo()
             yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0})
             
-            # 强化提示词：明确告知路径，强制要求使用工具
             messages = [
-                SystemMessage(content=f"""你是一个顶级的软件架构师。你的任务是分析当前已经克隆到本地的代码仓库。
-                仓库本地绝对路径为: {self.local_path}
-                
-                ### 核心指令：
-                1. **必须使用工具**：你必须先调用 `list_files` 查看目录结构，然后读取核心代码文件。
-                2. **降维打击**：用专业且通俗的中文解释架构，禁止大段粘贴代码。
-                3. **严禁犯懒**：不要告诉我你没有路径，路径就在上面。立即开始探测！
-                """),
-                HumanMessage(content=f"请立即开始对路径 {self.local_path} 进行深度调查，并输出中文分析报告。")
+                SystemMessage(content=f"你是一个软件架构师。请深度分析本地代码仓库: {self.local_path}"),
+                HumanMessage(content="请开始深度调查，必须先调用 list_files 查看结构。")
             ]
             
             iteration = 0
@@ -130,16 +131,12 @@ class RepoAnalyzer:
                 messages.append(res)
                 
                 if not res.tool_calls:
-                    # 如果模型还是不调用工具，强行踢它一脚
-                    if iteration == 1:
-                        messages.append(HumanMessage(content="你还没有调用任何工具！请先使用 list_files 查看目录结构。"))
-                        continue
                     break
                     
                 for tool_call in res.tool_calls:
                     tool_name = tool_call["name"]
-                    print(f"🔍 正在深入解析: {tool_call['args'].get('file_path', tool_name)}")
-                    yield json.dumps({"type": "log", "message": f"🔍 正在深入解析: {tool_call['args'].get('file_path', tool_name)}"})
+                    print(f"🔍 正在执行: {tool_name}")
+                    yield json.dumps({"type": "log", "message": f"🔍 正在执行: {tool_name}"})
                     
                     if tool_name in self.tools_map:
                         try:
@@ -152,8 +149,8 @@ class RepoAnalyzer:
                 
                 yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + iteration * 2.0})
 
-            yield json.dumps({"type": "log", "message": "🔍 调查结束，整合结果..."})
-            messages.append(HumanMessage(content="调查结束。现在请立即按照模板输出最终的中文报告。"))
+            yield json.dumps({"type": "log", "message": "🔍 整合结果..."})
+            messages.append(HumanMessage(content="报告输出阶段。"))
             final_report = ""
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
