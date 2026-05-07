@@ -128,6 +128,12 @@ async def chat_with_repo(data: ChatRequest, session: Session = Depends(get_sessi
     await chat_manager.start_chat_task(repo.id, data.message, repo.url, repo.analysis_report)
     return {"message": "Chat task started"}
 
+@router.get("/status/{repo_id}")
+async def get_chat_status(repo_id: int):
+    # 返回该项目当前是否有正在运行的问答任务
+    is_active = repo_id in chat_manager.active_tasks
+    return {"is_active": is_active}
+
 @router.get("/events/{repo_id}")
 async def stream_chat_events(repo_id: int):
     q = await chat_manager.subscribe(repo_id)
