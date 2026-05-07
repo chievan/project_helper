@@ -12,4 +12,5 @@ pydantic-settings
 websockets
 jinja2
 python-multipart
+beautifulsoup4
 # DeepSeek is compatible with OpenAI API format usually

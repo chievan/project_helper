@@ -58,9 +58,10 @@
 # 进入项目根目录执行
 cd /opt/project_helper && \
 git pull https://ghfast.top/https://github.com/chievan/project_helper main && \
-cd frontend && npm install && npm run build && \
+cd backend && pip install -r requirements.txt && \
+cd ../frontend && npm install && npm run build && \
 cd /opt/project_helper/backend && \
-pm2 restart project_helper
+pm2 restart project-helper
 ```
 
 > [!NOTE]
