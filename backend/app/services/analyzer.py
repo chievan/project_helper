@@ -38,6 +38,7 @@ class RepoAnalyzer:
             extra_body={"thinking": {"type": "disabled"}}
         )
         self.tools_list = [list_files, read_file_content, search_code_snippet, web_search]
+        self.llm_with_tools = self.llm.bind_tools(self.tools_list) # 恢复这个关键属性
         self.tools_map = {tool.name: tool for tool in self.tools_list}
         
     def update_status(self, status: str, progress: float):
