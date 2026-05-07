@@ -85,11 +85,13 @@ class RepoAnalyzer:
             os.makedirs(os.path.dirname(self.local_path), exist_ok=True)
             yield json.dumps({"type": "status", "status": "cloning", "progress": 25.0})
             
-            log_msg = f"Cloning {self.repo_url} into {self.local_path}..."
+            # 使用加速地址
+            clone_url = self.repo_url.replace("https://github.com/", "https://ghfast.top/https://github.com/")
+            log_msg = f"Cloning {clone_url} into {self.local_path}..."
             print(log_msg)
             yield json.dumps({"type": "log", "message": log_msg})
             
-            await asyncio.to_thread(Repo.clone_from, self.repo_url, self.local_path)
+            await asyncio.to_thread(Repo.clone_from, clone_url, self.local_path)
             
             yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0})
             
