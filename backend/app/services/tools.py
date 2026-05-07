@@ -5,8 +5,11 @@ from langchain.tools import tool
 
 def get_safe_path(base_path: str, target_path: str) -> str:
     """Ensures the target path is within the base path to prevent directory traversal."""
+    # 核心安全补丁：剥离所有开头的斜杠，防止 os.path.join 跳到系统根目录
+    safe_target = target_path.lstrip("/")
     absolute_base = os.path.abspath(base_path)
-    absolute_target = os.path.abspath(os.path.join(base_path, target_path))
+    absolute_target = os.path.abspath(os.path.join(base_path, safe_target))
+    
     if not absolute_target.startswith(absolute_base):
         return absolute_base
     return absolute_target
