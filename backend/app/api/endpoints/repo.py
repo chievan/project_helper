@@ -91,8 +91,9 @@ async def stream_repo_analysis(repo_id: int, session: Session = Depends(get_sess
     if not db_repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # 确保后台任务正在运行
-    await manager.get_or_create_task(repo_id, db_repo.url)
+    # 只有在非完成状态下，才确保后台任务正在运行
+    if db_repo.status != "completed":
+        await manager.get_or_create_task(repo_id, db_repo.url)
     
     # 接入订阅流
     q = await manager.subscribe(repo_id)
