@@ -165,7 +165,6 @@ const listenToAnalysis = (id: number) => {
 }
 
 const selectHistory = async (id: number) => {
-  // 不再禁止点击，允许后台分析时切换查看其他项目
   repoId.value = id
   report.value = ''
   chatHistory.value = []
@@ -181,8 +180,16 @@ const selectHistory = async (id: number) => {
     if (res.data.status !== 'completed' && !res.data.status.startsWith('failed')) {
       listenToAnalysis(id)
     } else {
-      isAnalyzing.value = false // 切换到已完成的项目，停止前端的分析状态显示
-      await fetchChatHistory(id)
+      isAnalyzing.value = false
+    }
+
+    // 加载聊天历史
+    await fetchChatHistory(id)
+
+    // 自动对齐：检查该项目是否有正在进行的问答任务
+    const chatStatus = await axios.get(`/api/chat/status/${id}`)
+    if (chatStatus.data.is_active) {
+      listenToChat(id)
     }
   } catch (err) {
     console.error(err)
@@ -212,6 +219,46 @@ const submitRepo = async () => {
   }
 }
 
+const listenToChat = (id: number) => {
+  if (isChatting.value) return
+  
+  // 如果历史记录里还没 AI 的回复占位，先补一个
+  const lastMsg = chatHistory.value[chatHistory.value.length - 1]
+  let aiMsgIdx = -1
+  if (!lastMsg || lastMsg.role !== 'assistant') {
+    aiMsgIdx = chatHistory.value.push({ role: 'assistant', content: '...' }) - 1
+  } else {
+    aiMsgIdx = chatHistory.value.length - 1
+  }
+
+  const eventSource = new EventSource(`/api/chat/events/${id}`)
+  isChatting.value = true
+
+  eventSource.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    if (data.is_resume) {
+      chatHistory.value[aiMsgIdx].content = data.text
+    } else if (data.text) {
+      if (chatHistory.value[aiMsgIdx].content === '...') {
+        chatHistory.value[aiMsgIdx].content = ''
+      }
+      chatHistory.value[aiMsgIdx].content += data.text
+    }
+    
+    if (data.done) {
+      eventSource.close()
+      isChatting.value = false
+      fetchChatHistory(id) // 刷新一次该项目的聊天历史
+    }
+    scrollToBottom()
+  }
+
+  eventSource.onerror = () => {
+    eventSource.close()
+    isChatting.value = false
+  }
+}
+
 const sendMessage = async () => {
   if (!chatMessage.value || !repoId.value) return
   
@@ -219,44 +266,12 @@ const sendMessage = async () => {
   chatHistory.value.push({ role: 'user', content: userMsg })
   chatMessage.value = ''
   
-  const aiMsgIdx = chatHistory.value.push({ role: 'assistant', content: '...' }) - 1
   scrollToBottom()
-  isChatting.value = true
-
   try {
-    // 1. 发起请求启动后台任务
     await axios.post('/api/chat/ask', { repo_id: repoId.value, message: userMsg })
-    
-    // 2. 建立事件监听流
-    const eventSource = new EventSource(`/api/chat/events/${repoId.value}`)
-    chatHistory.value[aiMsgIdx].content = ''
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      
-      if (data.is_resume) {
-        // 如果是重新连接，直接覆盖为当前已生成的全部内容
-        chatHistory.value[aiMsgIdx].content = data.text
-      } else if (data.text) {
-        // 正常追加新字符
-        chatHistory.value[aiMsgIdx].content += data.text
-      }
-      
-      if (data.done) {
-        eventSource.close()
-        isChatting.value = false
-        fetchHistory() // 刷新一次历史记录，确保状态同步
-      }
-      scrollToBottom()
-    }
-
-    eventSource.onerror = () => {
-      eventSource.close()
-      isChatting.value = false
-    }
+    listenToChat(repoId.value)
   } catch (err) {
     console.error(err)
-  } finally {
     isChatting.value = false
   }
 }
