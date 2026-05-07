@@ -14,8 +14,9 @@ from datetime import datetime
 import asyncio
 
 class RepoAnalyzer:
-    def __init__(self, repo_url: str):
+    def __init__(self, repo_url: str, repo_id: int = None):
         self.repo_url = repo_url
+        self.repo_id = repo_id
         self.repo_name = repo_url.split("/")[-1].replace(".git", "")
         self.owner = repo_url.split("/")[-2]
         
@@ -37,8 +38,12 @@ class RepoAnalyzer:
     def update_status(self, status: str, progress: float):
         print(f"Updating status: {status}, progress: {progress}%")
         with Session(engine) as session:
-            statement = select(Repository).where(Repository.url == self.repo_url)
-            db_repo = session.exec(statement).first()
+            if self.repo_id:
+                db_repo = session.get(Repository, self.repo_id)
+            else:
+                statement = select(Repository).where(Repository.url == self.repo_url)
+                db_repo = session.exec(statement).first()
+            
             if db_repo:
                 db_repo.status = status
                 db_repo.progress = progress
@@ -150,12 +155,20 @@ class RepoAnalyzer:
 
     def save_final_report(self, report: str):
         with Session(engine) as session:
-            statement = select(Repository).where(Repository.url == self.repo_url)
-            db_repo = session.exec(statement).first()
+            if self.repo_id:
+                db_repo = session.get(Repository, self.repo_id)
+            else:
+                statement = select(Repository).where(Repository.url == self.repo_url)
+                db_repo = session.exec(statement).first()
+                
             if db_repo:
+                print(f"Saving final report for repo_id: {self.repo_id or self.repo_url}")
                 db_repo.analysis_report = report
                 db_repo.status = "completed"
                 db_repo.progress = 100.0
                 db_repo.updated_at = datetime.utcnow()
                 session.add(db_repo)
                 session.commit()
+                print("Database commit successful.")
+            else:
+                print(f"ERROR: Could not find repository to save report! ID: {self.repo_id}")

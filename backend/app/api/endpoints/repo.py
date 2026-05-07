@@ -33,7 +33,7 @@ class AnalysisManager:
         self.active_tasks[repo_id] = task
 
     async def _run_analysis(self, repo_id: int, url: str):
-        analyzer = RepoAnalyzer(url)
+        analyzer = RepoAnalyzer(url, repo_id)
         try:
             async for event_str in analyzer.analyze_stream():
                 event = json.loads(event_str)
