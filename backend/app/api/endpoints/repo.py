@@ -39,19 +39,8 @@ async def submit_repo(data: RepoSubmit, background_tasks: BackgroundTasks, sessi
         session.add(db_repo)
         session.commit()
 
-    # Start analysis in background
-    background_tasks.add_task(run_analysis, data.url)
-    
-    return {"message": "Analysis started", "repo_id": db_repo.id, "cached": False}
-
-async def run_analysis(url: str):
-    try:
-        analyzer = RepoAnalyzer(url)
-        await analyzer.analyze()
-    except Exception as e:
-        print(f"Background analysis failed: {e}")
-        # Status update is handled inside analyzer.analyze() usually, 
-        # but if it fails before that, we should ensure it's marked as failed.
+    # Analysis will be triggered by the SSE events endpoint to support streaming
+    return {"message": "Analysis ready", "repo_id": db_repo.id, "cached": False}
 
 @router.get("/events/{repo_id}")
 async def stream_repo_analysis(repo_id: int, session: Session = Depends(get_session)):
