@@ -3,7 +3,7 @@ import shutil
 import json
 from git import Repo
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
 from app.core.config import settings
 from app.services.tools import list_files, read_file_content, search_code_snippet, web_search
 from app.models.repo import Repository
@@ -12,6 +12,15 @@ from app.core.db import engine
 from datetime import datetime
 
 import asyncio
+
+# 自定义 ChatOpenAI 类以兼容 DeepSeek 的 reasoning_content 字段
+class DeepSeekChat(ChatOpenAI):
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
+        dict_msg = super()._convert_message_to_dict(message)
+        # 如果是 AIMessage 且包含推理内容，强行将其加入字典，确保回传给 API
+        if isinstance(message, AIMessage) and "reasoning_content" in message.additional_kwargs:
+            dict_msg["reasoning_content"] = message.additional_kwargs["reasoning_content"]
+        return dict_msg
 
 class RepoAnalyzer:
     def __init__(self, repo_url: str, repo_id: int = None):
@@ -23,7 +32,7 @@ class RepoAnalyzer:
         # Resolve path relative to current working directory (server-friendly)
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
-        self.llm = ChatOpenAI(
+        self.llm = DeepSeekChat(
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
@@ -107,8 +116,8 @@ class RepoAnalyzer:
             while iteration < max_iterations:
                 iteration += 1
                 
-                # 工具调用阶段使用指定的分析模型
-                chat_llm = ChatOpenAI(
+                # 工具调用阶段使用增强的 DeepSeekChat 类，确保思考过程回传
+                chat_llm = DeepSeekChat(
                     model=settings.DEEPSEEK_ANALYSIS_MODEL,
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
