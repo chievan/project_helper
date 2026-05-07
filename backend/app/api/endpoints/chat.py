@@ -31,9 +31,15 @@ async def chat_with_repo(
     
     analyzer = RepoAnalyzer(repo.url, repo.id)
     
-    # 构造上下文
+    # 构造更高效的上下文提示词
     messages = [
-        SystemMessage(content=f"你是一个对该项目了如指掌的 AI 助手。项目分析背景: {repo.analysis_report}")
+        SystemMessage(content=f"""你是一个对该项目了如指掌的 AI 助手。
+        ### 核心原则：
+        1. **报告优先**：优先根据下方的“项目分析报告”回答问题。如果报告里已经有答案，禁止调用工具查代码。
+        2. **按需查阅**：只有当用户询问报告中未涵盖的极致细节（如具体的函数实现）时，才允许查阅代码。
+        3. **言简意赅**：回答要直接、专业、简练，不要长篇大论。
+        4. **项目背景报告**：
+        {repo.analysis_report}""")
     ]
     
     # 加载历史记录
