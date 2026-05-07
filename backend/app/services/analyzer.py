@@ -122,8 +122,10 @@ class RepoAnalyzer:
             yield json.dumps({"type": "status", "status": "completed", "progress": 100.0})
 
         except Exception as e:
-            print(f"Analysis failed: {str(e)}")
-            yield json.dumps({"type": "error", "message": str(e)})
+            error_msg = str(e)
+            print(f"Analysis failed: {error_msg}")
+            self.update_status(f"failed: {error_msg}", 0.0) # 更新数据库状态
+            yield json.dumps({"type": "error", "message": error_msg})
 
     def save_final_report(self, report: str):
         with Session(engine) as session:
