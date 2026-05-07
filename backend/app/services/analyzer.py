@@ -101,18 +101,29 @@ class RepoAnalyzer:
                 HumanMessage(content="请开始深度调查，并按照模板生成中文分析报告。")
             ]
             
-            # 2. 调查阶段 (带日志输出)
+            # 2. 深度分析循环 (使用标准模型进行工具调用，保证稳定性)
+            iteration = 0
             max_iterations = 15
-            for i in range(max_iterations):
-                ai_msg = await self.llm_with_tools.ainvoke(messages)
-                messages.append(ai_msg)
+            while iteration < max_iterations:
+                iteration += 1
                 
-                if not ai_msg.tool_calls:
+                # 工具调用阶段使用基础模型，避免推理模型的 reasoning_content 传参问题
+                # 注意：这里我们创建一个临时的 chat 实例用于工具调用
+                chat_llm = ChatOpenAI(
+                    model="deepseek-chat",
+                    openai_api_key=settings.DEEPSEEK_API_KEY,
+                    openai_api_base=settings.DEEPSEEK_BASE_URL,
+                    temperature=0
+                ).bind_tools(self.tools)
+                
+                res = await chat_llm.ainvoke(messages)
+                messages.append(res)
+                
+                if not res.tool_calls:
                     break
                     
-                for tool_call in ai_msg.tool_calls:
+                for tool_call in res.tool_calls:
                     tool_name = tool_call["name"]
-                    # 关键：同时推送到前端和服务器后台日志
                     detail = tool_call['args'].get('file_path', tool_name)
                     log_msg = f"🔍 正在深入解析: {detail}"
                     print(log_msg)
@@ -120,8 +131,6 @@ class RepoAnalyzer:
                     
                     if tool_name in self.tools_map:
                         try:
-                            # 核心安全补丁：强行将 AI 填写的 repo_path 替换为当前项目的绝对路径
-                            # 这样 AI 即使尝试越权访问别的目录，也会被重定向回本项目
                             args = tool_call["args"].copy()
                             if "repo_path" in args:
                                 args["repo_path"] = self.local_path
@@ -131,14 +140,15 @@ class RepoAnalyzer:
                         except Exception as e:
                             messages.append(ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"]))
                 
-                yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + (i + 1) * 2.0})
+                yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + iteration * 2.0})
 
-            # 3. 报告生成阶段 (流式 Token)
-            yield json.dumps({"type": "log", "message": "🔍 调查结束，正在整合调查结果并撰写深度报告..."})
+            # 3. 报告生成阶段 (使用 Pro 模型进行深度整合)
+            yield json.dumps({"type": "log", "message": "🔍 调查结束，正在使用 Pro 模型整合调查结果..."})
             yield json.dumps({"type": "status", "status": "generating_report", "progress": 95.0})
             messages.append(HumanMessage(content="调查结束。现在请立即按照模板输出最终的中文报告。"))
             
             final_report = ""
+            # 此处 self.llm 已经是 settings.DEEPSEEK_MODEL (即 v4-pro)
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
                     final_report += chunk.content
