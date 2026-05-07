@@ -27,10 +27,13 @@ class DeepSeekChat(ChatOpenAI):
                 dict_msg["reasoning_content"] = reasoning
         return dict_msg
 
-    def _create_chat_result(self, response: Any) -> ChatResult:
-        result = super()._create_chat_result(response)
+    def _create_chat_result(self, *args: Any, **kwargs: Any) -> ChatResult:
+        result = super()._create_chat_result(*args, **kwargs)
+        # 第一个位置参数通常是 response
+        response = args[0] if args else kwargs.get("response")
+        
         # 核心修复：从原始响应中提取推理内容并持久化到 AIMessage 对象中
-        if hasattr(response, "choices") and response.choices:
+        if response and hasattr(response, "choices") and response.choices:
             raw_msg = response.choices[0].message
             # 兼容官方 SDK 对象或字典格式
             reasoning = None
