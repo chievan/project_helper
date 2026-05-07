@@ -30,68 +30,70 @@ async def get_github_trending():
     }
     
     try:
-        # httpx 会自动识别系统环境变量 HTTP_PROXY / HTTPS_PROXY
+        # 尝试通过系统代理抓取
         async with httpx.AsyncClient(trust_env=True) as client:
-            response = await client.get(url, headers=headers, timeout=15.0)
+            try:
+                response = await client.get(url, headers=headers, timeout=10.0)
+            except (httpx.ConnectError, httpx.TimeoutException) as ce:
+                print(f"Direct fetch failed: {ce}. Trying fallback...")
+                # 如果直连失败，尝试使用一个通用的公共 API 镜像 (如果可用)
+                fallback_url = "https://gtrend.yapie.me/repositories"
+                response = await client.get(fallback_url, timeout=10.0)
             
         if response.status_code != 200:
-            # 如果抓取失败但有旧数据，先返回旧数据
-            if cache["data"]:
-                return cache["data"]
-            raise HTTPException(status_code=502, detail="Failed to fetch from GitHub")
+            if cache["data"]: return cache["data"]
+            raise HTTPException(status_code=502, detail=f"GitHub reachable but returned {response.status_code}")
             
-        soup = BeautifulSoup(response.text, 'html.parser')
-        repo_rows = soup.select('article.Box-row')
-        
-        results = []
-        for row in repo_rows:
-            try:
-                # Name and Owner
-                title_tag = row.select_one('h2 a')
-                if not title_tag: continue
-                
-                full_name = title_tag.text.strip().replace(' ', '').replace('\n', '')
-                owner, name = full_name.split('/')
-                
-                # Description
-                desc_tag = row.select_one('p')
-                description = desc_tag.text.strip() if desc_tag else ""
-                
-                # Meta info (Stars, Language, etc.)
-                meta_div = row.select_one('div.f6.color-fg-muted.mt-2')
-                
-                language = "Unknown"
-                if meta_div:
-                    lang_tag = meta_div.select_one('span[itemprop="programmingLanguage"]')
-                    if lang_tag: language = lang_tag.text.strip()
-                
-                stars = "0"
-                if meta_div:
-                    stars_tag = meta_div.select_one('a[href$="/stargazers"]')
-                    if stars_tag: stars = stars_tag.text.strip()
-                
+        # 如果是第三方 API 返回的是 JSON
+        if "application/json" in response.headers.get("Content-Type", ""):
+            data = response.json()
+            results = []
+            for item in data[:15]:
                 results.append({
-                    "owner": owner,
-                    "name": name,
-                    "full_name": full_name,
-                    "description": description,
-                    "language": language,
-                    "stars": stars,
-                    "url": f"https://github.com/{full_name}"
+                    "owner": item.get("author"),
+                    "name": item.get("name"),
+                    "full_name": f"{item.get('author')}/{item.get('name')}",
+                    "description": item.get("description"),
+                    "language": item.get("language"),
+                    "stars": str(item.get("stars")),
+                    "url": item.get("url")
                 })
-            except Exception as e:
-                print(f"Error parsing row: {e}")
-                continue
+        else:
+            # 否则按原逻辑解析 HTML
+            soup = BeautifulSoup(response.text, 'html.parser')
+            repo_rows = soup.select('article.Box-row')
+            results = []
+            for row in repo_rows:
+                try:
+                    title_tag = row.select_one('h2 a')
+                    if not title_tag: continue
+                    full_name = title_tag.text.strip().replace(' ', '').replace('\n', '')
+                    owner, name = full_name.split('/')
+                    desc_tag = row.select_one('p')
+                    description = desc_tag.text.strip() if desc_tag else ""
+                    meta_div = row.select_one('div.f6.color-fg-muted.mt-2')
+                    language = "Unknown"
+                    if meta_div:
+                        lang_tag = meta_div.select_one('span[itemprop="programmingLanguage"]')
+                        if lang_tag: language = lang_tag.text.strip()
+                    stars = "0"
+                    if meta_div:
+                        stars_tag = meta_div.select_one('a[href$="/stargazers"]')
+                        if stars_tag: stars = stars_tag.text.strip()
+                    results.append({
+                        "owner": owner, "name": name, "full_name": full_name,
+                        "description": description, "language": language,
+                        "stars": stars, "url": f"https://github.com/{full_name}"
+                    })
+                except Exception: continue
         
-        # 更新缓存
         if results:
             cache["data"] = results
             cache["last_updated"] = now
-            
         return results
         
     except Exception as e:
-        print(f"Scraper exception: {e}")
-        if cache["data"]:
-            return cache["data"]
+        import traceback
+        print(f"Scraper critical error:\n{traceback.format_exc()}")
+        if cache["data"]: return cache["data"]
         raise HTTPException(status_code=500, detail=str(e))
