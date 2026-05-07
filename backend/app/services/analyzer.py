@@ -113,7 +113,7 @@ class RepoAnalyzer:
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
                     temperature=0
-                ).bind_tools(self.tools)
+                ).bind_tools(list(self.tools_map.values()))
                 
                 res = await chat_llm.ainvoke(messages)
                 messages.append(res)
