@@ -107,10 +107,9 @@ class RepoAnalyzer:
             while iteration < max_iterations:
                 iteration += 1
                 
-                # 工具调用阶段使用基础模型，避免推理模型的 reasoning_content 传参问题
-                # 注意：这里我们创建一个临时的 chat 实例用于工具调用
+                # 工具调用阶段使用 Flash 模型，极速且稳定
                 chat_llm = ChatOpenAI(
-                    model="deepseek-chat",
+                    model="deepseek-v4-flash",
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
                     temperature=0
