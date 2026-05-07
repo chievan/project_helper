@@ -12,42 +12,17 @@ from app.models.repo import Repository
 from sqlmodel import Session, select
 from app.core.db import engine
 from datetime import datetime
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any
 
-# 使用官方 ChatOpenAI，但手动注入核心逻辑
+# 保持极简的兼容类，作为最后的安全兜底
 class DeepSeekChat(ChatOpenAI):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
-    # 终极拦截：无论 LangChain 怎么变，所有的 message dict 转换最终都会过这一关
-    def _create_message_dicts(self, messages: List[BaseMessage], stop: Optional[List[str]]) -> List[Dict[str, Any]]:
-        message_dicts, params = super()._create_message_dicts(messages, stop)
-        
-        # 在这里进行最后的“临门一脚”注入
-        for i, m in enumerate(messages):
-            if isinstance(m, AIMessage):
-                reasoning = (
-                    m.additional_kwargs.get("reasoning_content") or 
-                    m.additional_kwargs.get("reasoning")
-                )
-                if reasoning:
-                    message_dicts[i]["reasoning_content"] = reasoning
-                    print(f"DEBUG: [Surgical Fix] Injected reasoning_content (len: {len(reasoning)})")
-        
-        return message_dicts, params
-
-    def _create_chat_result(self, *args: Any, **kwargs: Any) -> ChatResult:
-        result = super()._create_chat_result(*args, **kwargs)
-        response = args[0] if args else kwargs.get("response")
-        if response and hasattr(response, "choices") and response.choices:
-            raw_msg = response.choices[0].message
-            reasoning = getattr(raw_msg, "reasoning_content", None)
-            if not reasoning and isinstance(raw_msg, dict):
-                reasoning = raw_msg.get("reasoning_content")
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
+        dict_msg = super()._convert_message_to_dict(message)
+        if isinstance(message, AIMessage):
+            reasoning = message.additional_kwargs.get("reasoning_content")
             if reasoning:
-                print(f"DEBUG: [Surgical Fix] Captured reasoning_content (len: {len(reasoning)})")
-                result.generations[0].message.additional_kwargs["reasoning_content"] = reasoning
-        return result
+                dict_msg["reasoning_content"] = reasoning
+        return dict_msg
 
 class RepoAnalyzer:
     def __init__(self, repo_url: str, repo_id: int = None):
@@ -57,11 +32,13 @@ class RepoAnalyzer:
         self.owner = repo_url.split("/")[-2]
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
+        # 核心：通过 extra_body 显式禁用思考模式，彻底解决 400 报错
         self.llm = DeepSeekChat(
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
-            temperature=0
+            temperature=0,
+            extra_body={"thinking": {"type": "disabled"}}
         )
         self.tools_list = [list_files, read_file_content, search_code_snippet, web_search]
         self.tools_map = {tool.name: tool for tool in self.tools_list}
@@ -92,20 +69,21 @@ class RepoAnalyzer:
             yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0})
             
             messages = [
-                SystemMessage(content=f"你是一个软件架构师。请深度分析本地代码仓库: {self.local_path}。"),
+                SystemMessage(content=f"你是一个顶级的软件架构师。请深度分析代码仓库: {self.local_path}。请务必使用工具进行调查。"),
                 HumanMessage(content="请开始深度调查。")
             ]
             
             iteration = 0
             while iteration < 15:
                 iteration += 1
-                print(f"DEBUG: === Iteration {iteration} ===")
                 
+                # 在循环中也显式禁用思考模式
                 chat_llm = DeepSeekChat(
                     model=settings.DEEPSEEK_ANALYSIS_MODEL,
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
-                    temperature=0
+                    temperature=0,
+                    extra_body={"thinking": {"type": "disabled"}}
                 ).bind_tools(list(self.tools_map.values()))
                 
                 res = await chat_llm.ainvoke(messages)
@@ -113,7 +91,7 @@ class RepoAnalyzer:
                 
                 if not res.tool_calls: break
                 for tool_call in res.tool_calls:
-                    print(f"🔍 执行: {tool_call['name']}")
+                    print(f"🔍 正在执行工具: {tool_call['name']}")
                     yield json.dumps({"type": "log", "message": f"🔍 解析: {tool_call['name']}"})
                     if tool_call["name"] in self.tools_map:
                         args = tool_call["args"].copy()
@@ -123,8 +101,8 @@ class RepoAnalyzer:
                 
                 yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + iteration * 2.0})
 
-            yield json.dumps({"type": "log", "message": "🔍 整合结果..."})
-            messages.append(HumanMessage(content="请输出报告。"))
+            yield json.dumps({"type": "log", "message": "🔍 调查结束，整合结果..."})
+            messages.append(HumanMessage(content="调查结束。现在请输出最终报告。"))
             final_report = ""
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
@@ -145,5 +123,6 @@ class RepoAnalyzer:
             if db_repo:
                 db_repo.analysis_report = report
                 db_repo.status = "completed"
+                db_repo.progress = 100.0
                 session.add(db_repo)
                 session.commit()
