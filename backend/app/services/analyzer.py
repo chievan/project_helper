@@ -134,7 +134,7 @@ class RepoAnalyzer:
                 yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + (i + 1) * 2.0})
 
             # 3. 报告生成阶段 (流式 Token)
-            yield json.dumps({"type": "status", "status": "completed", "progress": 90.0})
+            yield json.dumps({"type": "status", "status": "generating_report", "progress": 90.0})
             messages.append(HumanMessage(content="调查结束。现在请立即按照模板输出最终的中文报告。"))
             
             final_report = ""
