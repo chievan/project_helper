@@ -34,7 +34,7 @@ class RepoAnalyzer:
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
-            temperature=0.3, # 稍微提升一点创造性，让语言更通俗
+            temperature=0.3,
             extra_body={"thinking": {"type": "disabled"}}
         )
         self.tools_list = [list_files, read_file_content, search_code_snippet, web_search]
@@ -65,25 +65,16 @@ class RepoAnalyzer:
             await self.clone_repo()
             yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0})
             
-            # 升级版系统提示词：要求极其通俗、结构化
             messages = [
                 SystemMessage(content=f"""你是一个顶级的“技术转大白话”翻译专家。你的任务是分析代码仓库: {self.local_path}。
                 
                 ### 终极目标：
                 生成的报告必须让“完全不懂代码的傻瓜”也能看懂这个项目是干什么的、怎么实现的。
                 
-                ### 报告必须包含以下板块：
-                1. **项目概述**：用一个精妙的比喻解释它是干嘛的。
-                2. **技术栈**：列出地基、骨架和工具箱。
-                3. **目录结构**：像导游一样介绍每个文件夹是干嘛的。
-                4. **核心模块**：找出项目的心脏和大脑。
-                5. **数据流**：描述数据是怎么从 A 走到 B 的。
-                6. **设计模式**：用生活场景解释它用了什么精妙设计。
-                7. **阅读建议**：告诉新手应该先看哪行代码。
-
-                CRITICAL: 必须使用中文，严禁堆砌专业术语！
+                ### 报告板块：项目概述、技术栈、目录结构、核心模块、数据流、设计模式、阅读建议。
+                CRITICAL: 必须使用中文。
                 """),
-                HumanMessage(content="请立即开始深度调查，运用工具仔细查看目录和核心文件。")
+                HumanMessage(content="请开始深度调查。")
             ]
             
             iteration = 0
@@ -102,7 +93,7 @@ class RepoAnalyzer:
                 if not res.tool_calls: break
                 
                 for tool_call in res.tool_calls:
-                    yield json.dumps({"type": "log", "message": f"🔍 正在拆解: {tool_call['name']}"})
+                    yield json.dumps({"type": "log", "message": f"🔍 正在执行: {tool_call['name']}"})
                     if tool_call["name"] in self.tools_map:
                         args = tool_call["args"].copy()
                         if "repo_path" in args: args["repo_path"] = self.local_path
@@ -111,16 +102,20 @@ class RepoAnalyzer:
                 
                 yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + iteration * 3.0})
 
-            yield json.dumps({"type": "log", "message": "🔍 调查完毕，正在为你翻译成“人话”报告..."})
-            messages.append(HumanMessage(content="""好了，现在请拿出你的最高水平，输出那份「傻子也能懂」的完整分析报告。
-            请确保涵盖：项目概述、技术栈、目录结构、核心模块、数据流、设计模式、阅读建议。
-            使用 Markdown 格式，多用表情符号，让报告看起来生动有趣！"""))
+            yield json.dumps({"type": "log", "message": "🔍 调查结束，生成最终报告..."})
+            # 强化最后的 Prompt，严禁它再想调用工具
+            messages.append(HumanMessage(content="""调查环节已彻底结束，严禁调用任何工具或输出任何 < | DSML | > 标签！
+            请根据目前的调查结果，直接输出那份「傻子也能懂」的完整中文分析报告。
+            报告结构：项目概述、技术栈、目录结构、核心模块、数据流、设计模式、阅读建议。
+            使用生动的 Markdown 格式，多用比喻！"""))
             
             final_report = ""
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
-                    final_report += chunk.content
-                    yield json.dumps({"type": "report_token", "text": chunk.content})
+                    # 最后的兜底逻辑：如果它还是吐出了标签，直接过滤掉（防止前端炸裂）
+                    cleaned_content = chunk.content.replace("< | DSML | tool_calls >", "").replace("< | DSML |", "").replace("| >", "")
+                    final_report += cleaned_content
+                    yield json.dumps({"type": "report_token", "text": cleaned_content})
             
             self.save_final_report(final_report)
             yield json.dumps({"type": "status", "status": "completed", "progress": 100.0})
