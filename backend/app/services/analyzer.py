@@ -107,9 +107,9 @@ class RepoAnalyzer:
             while iteration < max_iterations:
                 iteration += 1
                 
-                # 工具调用阶段使用 Flash 模型，极速且稳定
+                # 工具调用阶段使用指定的分析模型
                 chat_llm = ChatOpenAI(
-                    model="deepseek-v4-flash",
+                    model=settings.DEEPSEEK_ANALYSIS_MODEL,
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
                     temperature=0
