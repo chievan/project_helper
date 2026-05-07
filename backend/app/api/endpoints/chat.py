@@ -76,7 +76,10 @@ async def ask_question(data: ChatRequest, session: Session = Depends(get_session
                     content = event["data"]["chunk"].content
                     if content:
                         final_answer += content
-                        yield f"data: {json.dumps({'text': content})}\n\n"
+                        # 过滤 DeepSeek 内部 DSML 标签
+                        cleaned = content.replace("< | DSML | tool_calls >", "").replace("< | DSML |", "").replace("| >", "")
+                        if cleaned.strip():
+                            yield f"data: {json.dumps({'text': cleaned})}\n\n"
                 
                 elif kind == "on_chat_model_end":
                     current_ai_msg = event["data"]["output"]
