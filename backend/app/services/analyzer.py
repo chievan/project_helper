@@ -14,37 +14,45 @@ from app.core.db import engine
 from datetime import datetime
 from typing import Optional, Any, List, Dict
 
-# 针对 langchain-openai 0.3.0 深度定制的 DeepSeekChat
+# 终极加固：覆盖所有可能的转换入口
 class DeepSeekChat(ChatOpenAI):
-    # 终极出口封堵：直接修改发往 API 的最终参数字典
+    # 出口 1: 消息字典转换
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
+        d = super()._convert_message_to_dict(message)
+        if isinstance(message, AIMessage):
+            reasoning = message.additional_kwargs.get("reasoning_content")
+            if reasoning:
+                d["reasoning_content"] = reasoning
+                print(f"DEBUG: [Export-1] Injected reasoning (len: {len(reasoning)})")
+        return d
+
+    # 出口 2: 批量参数转换
     def _convert_messages_to_params(self, messages: List[BaseMessage], **kwargs: Any) -> Dict[str, Any]:
         params = super()._convert_messages_to_params(messages, **kwargs)
-        
-        # 遍历消息，强制将思考过程注入对应的 API 字典中
         for i, m in enumerate(messages):
             if isinstance(m, AIMessage):
-                reasoning = (
-                    m.additional_kwargs.get("reasoning_content") or 
-                    m.additional_kwargs.get("reasoning")
-                )
-                if reasoning:
-                    # params["messages"] 对应的是发给 OpenAI SDK 的 dict 列表
+                reasoning = m.additional_kwargs.get("reasoning_content")
+                if reasoning and "messages" in params:
                     params["messages"][i]["reasoning_content"] = reasoning
-                    print(f"DEBUG: [Protocol] >>> FORCED reasoning_content into payload (len: {len(reasoning)})")
-        
+                    print(f"DEBUG: [Export-2] Injected reasoning (len: {len(reasoning)})")
         return params
 
+    # 出口 3: 异步生成（最底层的网络调用前置）
+    async def _agenerate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, run_manager: Any = None, **kwargs: Any) -> ChatResult:
+        # 在生成前，确保 kwargs 里的消息已经注入
+        # 注意：这里我们主要依靠上面两个转换函数，但加上打印确认进入了这里
+        # print(f"DEBUG: [Export-3] Entering _agenerate")
+        return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    # 入口: 结果捕获
     def _create_chat_result(self, *args: Any, **kwargs: Any) -> ChatResult:
         result = super()._create_chat_result(*args, **kwargs)
         response = args[0] if args else kwargs.get("response")
-        
         if response and hasattr(response, "choices") and response.choices:
             raw_msg = response.choices[0].message
-            # 兼容对象式和字典式响应
             reasoning = getattr(raw_msg, "reasoning_content", None)
             if not reasoning and isinstance(raw_msg, dict):
                 reasoning = raw_msg.get("reasoning_content")
-            
             if reasoning:
                 print(f"DEBUG: [Protocol] <<< CAPTURED reasoning_content (len: {len(reasoning)})")
                 result.generations[0].message.additional_kwargs["reasoning_content"] = reasoning
@@ -58,7 +66,6 @@ class RepoAnalyzer:
         self.owner = repo_url.split("/")[-2]
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
-        # 显式参数传递
         self.llm = DeepSeekChat(
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
@@ -73,34 +80,21 @@ class RepoAnalyzer:
     def update_status(self, status: str, progress: float):
         print(f"Updating status: {status}, progress: {progress}%")
         with Session(engine) as session:
-            if self.repo_id:
-                db_repo = session.get(Repository, self.repo_id)
-            else:
-                statement = select(Repository).where(Repository.url == self.repo_url)
-                db_repo = session.exec(statement).first()
+            statement = select(Repository).where(Repository.url == self.repo_url)
+            db_repo = session.exec(statement).first()
             if db_repo:
                 db_repo.status = status
                 db_repo.progress = progress
-                db_repo.updated_at = datetime.utcnow()
                 session.add(db_repo)
                 session.commit()
 
     async def clone_repo(self):
         self.update_status("cloning", 25.0)
-        if os.path.exists(self.local_path):
-            shutil.rmtree(self.local_path)
+        if os.path.exists(self.local_path): shutil.rmtree(self.local_path)
         os.makedirs(os.path.dirname(self.local_path), exist_ok=True)
-        clone_url = self.repo_url
-        if "github.com" in clone_url:
-            clone_url = f"https://ghfast.top/{clone_url}"
-        print(f"Cloning {clone_url}...")
-        await asyncio.to_thread(
-            Repo.clone_from, clone_url, self.local_path, depth=1,
-            multi_options=['--config http.postBuffer=524288000', '--config http.lowSpeedLimit=0', '--config http.lowSpeedTime=999999'],
-            allow_unsafe_options=True
-        )
+        clone_url = f"https://ghfast.top/{self.repo_url}" if "github.com" in self.repo_url else self.repo_url
+        await asyncio.to_thread(Repo.clone_from, clone_url, self.local_path, depth=1)
         self.update_status("analyzing", 50.0)
-        return self.local_path
 
     async def analyze_stream(self):
         try:
@@ -110,7 +104,7 @@ class RepoAnalyzer:
             
             messages = [
                 SystemMessage(content=f"你是一个软件架构师。请深度分析本地代码仓库: {self.local_path}"),
-                HumanMessage(content="请开始深度调查，必须先调用 list_files 查看结构。")
+                HumanMessage(content="请开始深度调查，必须调用工具。")
             ]
             
             iteration = 0
@@ -118,6 +112,7 @@ class RepoAnalyzer:
                 iteration += 1
                 print(f"DEBUG: === Iteration {iteration} ===")
                 
+                # 重新构建绑定的模型
                 chat_llm = DeepSeekChat(
                     model=settings.DEEPSEEK_ANALYSIS_MODEL,
                     openai_api_key=settings.DEEPSEEK_API_KEY,
@@ -130,27 +125,20 @@ class RepoAnalyzer:
                 res = await chat_llm.ainvoke(messages)
                 messages.append(res)
                 
-                if not res.tool_calls:
-                    break
-                    
+                if not res.tool_calls: break
                 for tool_call in res.tool_calls:
-                    tool_name = tool_call["name"]
-                    print(f"🔍 正在执行: {tool_name}")
-                    yield json.dumps({"type": "log", "message": f"🔍 正在执行: {tool_name}"})
-                    
-                    if tool_name in self.tools_map:
-                        try:
-                            args = tool_call["args"].copy()
-                            if "repo_path" in args: args["repo_path"] = self.local_path
-                            tool_output = await asyncio.to_thread(self.tools_map[tool_name].invoke, args)
-                            messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_call["id"]))
-                        except Exception as e:
-                            messages.append(ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"]))
+                    print(f"🔍 执行: {tool_call['name']}")
+                    yield json.dumps({"type": "log", "message": f"🔍 解析: {tool_call['name']}"})
+                    if tool_call["name"] in self.tools_map:
+                        args = tool_call["args"].copy()
+                        if "repo_path" in args: args["repo_path"] = self.local_path
+                        out = await asyncio.to_thread(self.tools_map[tool_call["name"]].invoke, args)
+                        messages.append(ToolMessage(content=str(out), tool_call_id=tool_call["id"]))
                 
                 yield json.dumps({"type": "status", "status": "analyzing", "progress": 50.0 + iteration * 2.0})
 
             yield json.dumps({"type": "log", "message": "🔍 整合结果..."})
-            messages.append(HumanMessage(content="报告输出阶段。"))
+            messages.append(HumanMessage(content="请输出报告。"))
             final_report = ""
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
@@ -171,6 +159,5 @@ class RepoAnalyzer:
             if db_repo:
                 db_repo.analysis_report = report
                 db_repo.status = "completed"
-                db_repo.updated_at = datetime.utcnow()
                 session.add(db_repo)
                 session.commit()
