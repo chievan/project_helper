@@ -39,7 +39,7 @@ async def get_github_trending():
     try:
         results = []
         async with httpx.AsyncClient(trust_env=True) as client:
-            # 尝试列表 (GitHub 直连 -> 镜像1 -> 镜像2)
+            # 增加超时时间到 20s，并按顺序尝试
             targets = [
                 (url, "html"),
                 ("https://gtrend.yapie.me/repositories", "json"),
@@ -48,17 +48,19 @@ async def get_github_trending():
             
             for target_url, mode in targets:
                 try:
-                    print(f"Trying to fetch trending from: {target_url}")
-                    response = await client.get(target_url, headers=headers, timeout=5.0)
+                    print(f"[Scraper] Trying to fetch from: {target_url} (Timeout: 20s)")
+                    response = await client.get(target_url, headers=headers, timeout=20.0)
+                    print(f"[Scraper] Status: {response.status_code} for {target_url}")
+                    
                     if response.status_code == 200:
                         if mode == "json":
                             data = response.json()
                             for item in data[:12]:
                                 results.append({
-                                    "owner": item.get("author") or item.get("username"),
-                                    "name": item.get("name"),
-                                    "full_name": f"{item.get('author')}/{item.get('name')}",
-                                    "description": item.get("description"),
+                                    "owner": item.get("author") or item.get("username") or "Unknown",
+                                    "name": item.get("name") or "Unknown",
+                                    "full_name": f"{item.get('author') or '?'}/{item.get('name') or '?'}",
+                                    "description": item.get("description") or "",
                                     "language": item.get("language") or "Unknown",
                                     "stars": str(item.get("stars") or "0"),
                                     "url": item.get("url") or f"https://github.com/{item.get('author')}/{item.get('name')}"
@@ -71,6 +73,7 @@ async def get_github_trending():
                                     title_tag = row.select_one('h2 a')
                                     if not title_tag: continue
                                     full_name = title_tag.text.strip().replace(' ', '').replace('\n', '')
+                                    if '/' not in full_name: continue
                                     owner, name = full_name.split('/')
                                     desc_tag = row.select_one('p')
                                     description = desc_tag.text.strip() if desc_tag else ""
@@ -88,15 +91,21 @@ async def get_github_trending():
                                         "description": description, "language": language,
                                         "stars": stars, "url": f"https://github.com/{full_name}"
                                     })
-                                except Exception: continue
-                        if results: break # 成功获取则跳出循环
+                                except Exception as e: 
+                                    print(f"[Scraper] Row parsing error: {e}")
+                                    continue
+                        
+                        if results:
+                            print(f"[Scraper] Successfully fetched {len(results)} items from {target_url}")
+                            break
+                    else:
+                        print(f"[Scraper] Failed with status {response.status_code} from {target_url}")
                 except Exception as e:
-                    print(f"Fetch from {target_url} failed: {e}")
+                    print(f"[Scraper] Attempt for {target_url} failed with error: {type(e).__name__}: {e}")
                     continue
         
-        # 如果所有尝试都失败，使用 Mock 数据
         if not results:
-            print("All fetch attempts failed. Using mock fallback data.")
+            print("[Scraper] All sources failed. Falling back to mock data.")
             results = mock_data
             
         cache["data"] = results
@@ -105,5 +114,5 @@ async def get_github_trending():
         
     except Exception as e:
         import traceback
-        print(f"Scraper critical error:\n{traceback.format_exc()}")
+        print(f"[Scraper] CRITICAL ERROR:\n{traceback.format_exc()}")
         return cache["data"] if cache["data"] else mock_data
