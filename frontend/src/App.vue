@@ -224,37 +224,35 @@ const sendMessage = async () => {
   isChatting.value = true
 
   try {
-    const response = await fetch('/api/chat/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo_id: repoId.value, message: userMsg })
-    })
+    // 1. 发起请求启动后台任务
+    await axios.post('/api/chat/ask', { repo_id: repoId.value, message: userMsg })
     
-    const reader = response.body?.getReader()
-    if (!reader) {
-      isChatting.value = false
-      return
-    }
-    
+    // 2. 建立事件监听流
+    const eventSource = new EventSource(`/api/chat/events/${repoId.value}`)
     chatHistory.value[aiMsgIdx].content = ''
-    
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data)
       
-      const chunk = new TextDecoder().decode(value)
-      const lines = chunk.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.text !== '... (analyzing code)') {
-                chatHistory.value[aiMsgIdx].content += data.text
-                scrollToBottom()
-            }
-          } catch(e) {}
-        }
+      if (data.is_resume) {
+        // 如果是重新连接，直接覆盖为当前已生成的全部内容
+        chatHistory.value[aiMsgIdx].content = data.text
+      } else if (data.text) {
+        // 正常追加新字符
+        chatHistory.value[aiMsgIdx].content += data.text
       }
+      
+      if (data.done) {
+        eventSource.close()
+        isChatting.value = false
+        fetchHistory() // 刷新一次历史记录，确保状态同步
+      }
+      scrollToBottom()
+    }
+
+    eventSource.onerror = () => {
+      eventSource.close()
+      isChatting.value = false
     }
   } catch (err) {
     console.error(err)
