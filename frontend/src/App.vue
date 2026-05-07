@@ -117,7 +117,8 @@ const listenToAnalysis = (id: number) => {
       progress.value = data.progress
       if (data.status === 'completed') {
         eventSource.close()
-        isAnalyzing.value = false
+        // 关键：完成后立刻从数据库拉取一次完整报告，确保万无一失
+        fetchStatus()
         fetchHistory()
       }
     } else if (data.type === 'log') {
