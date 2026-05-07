@@ -103,6 +103,20 @@ const deleteRepo = async (id: number, event: Event) => {
   }
 }
 
+const fetchStatus = async () => {
+  if (!repoId.value) return
+  try {
+    const res = await axios.get(`/api/repo/${repoId.value}`)
+    report.value = res.data.analysis_report
+    progress.value = 100
+    currentStep.value = 'completed'
+  } catch (err) {
+    console.error('Failed to fetch final status:', err)
+  } finally {
+    isAnalyzing.value = false
+  }
+}
+
 const listenToAnalysis = (id: number) => {
   isAnalyzing.value = true
   analysisLog.value = []
@@ -110,32 +124,37 @@ const listenToAnalysis = (id: number) => {
   const eventSource = new EventSource(`/api/repo/events/${id}`)
   
   eventSource.onmessage = (event) => {
-    const data = JSON.parse(event.data)
+    // 兼容心跳包
+    if (event.data === ': heartbeat') return
     
-    if (data.type === 'status') {
-      currentStep.value = data.status
-      progress.value = data.progress
-      if (data.status === 'completed') {
-        eventSource.close()
-        // 关键：完成后立刻从数据库拉取一次完整报告，确保万无一失
-        fetchStatus()
-        fetchHistory()
+    try {
+      const data = JSON.parse(event.data)
+      
+      if (data.type === 'status' || data.status) { // 兼容旧版或新版格式
+        const status = data.status || data.type
+        currentStep.value = status
+        progress.value = data.progress || progress.value
+        
+        if (status === 'completed') {
+          eventSource.close()
+          fetchStatus()
+          fetchHistory()
+        }
+      } else if (data.type === 'log') {
+        analysisLog.value.push(data.message)
+        if (analysisLog.value.length > 5) analysisLog.value.shift()
+      } else if (data.type === 'report_token') {
+        report.value += data.text
       }
-    } else if (data.type === 'log') {
-      analysisLog.value.push(data.message)
-      if (analysisLog.value.length > 5) analysisLog.value.shift()
-    } else if (data.type === 'report_token') {
-      report.value += data.text
-    } else if (data.type === 'error') {
-      eventSource.close()
-      isAnalyzing.value = false
-      currentStep.value = 'failed'
+    } catch (e) {
+      // 可能是非 JSON 格式的心跳或注释，忽略
     }
   }
   
   eventSource.onerror = () => {
     eventSource.close()
-    isAnalyzing.value = false
+    // 即使流断了，也尝试拉一次状态，看看是不是分析完了
+    fetchStatus()
   }
 }
 
@@ -183,15 +202,6 @@ const submitRepo = async () => {
     isAnalyzing.value = false
     currentStep.value = 'failed'
   }
-}
-
-const fetchStatus = async () => {
-  if (!repoId.value) return
-  const res = await axios.get(`/api/repo/${repoId.value}`)
-  report.value = res.data.analysis_report
-  progress.value = 100
-  currentStep.value = 'completed'
-  isAnalyzing.value = false
 }
 
 const sendMessage = async () => {
