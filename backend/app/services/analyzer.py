@@ -3,15 +3,39 @@ import shutil
 import json
 from git import Repo
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
+from langchain_core.outputs import ChatResult
 from app.core.config import settings
 from app.services.tools import list_files, read_file_content, search_code_snippet, web_search
 from app.models.repo import Repository
 from sqlmodel import Session, select
 from app.core.db import engine
 from datetime import datetime
+from typing import Optional, Any
 
 import asyncio
+
+# 自定义 ChatOpenAI 类以兼容 DeepSeek 的 reasoning_content 字段
+class DeepSeekChat(ChatOpenAI):
+    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
+        dict_msg = super()._convert_message_to_dict(message)
+        if isinstance(message, AIMessage):
+            # 优先从 additional_kwargs 中读取思考过程
+            reasoning = message.additional_kwargs.get("reasoning_content") or message.additional_kwargs.get("reasoning")
+            if reasoning:
+                dict_msg["reasoning_content"] = reasoning
+        return dict_msg
+
+    def _create_chat_result(self, *args: Any, **kwargs: Any) -> ChatResult:
+        result = super()._create_chat_result(*args, **kwargs)
+        # 从原始响应中提取推理内容并持久化到 AIMessage 对象中
+        response = args[0] if args else kwargs.get("response")
+        if response and hasattr(response, "choices") and response.choices:
+            raw_msg = response.choices[0].message
+            reasoning = getattr(raw_msg, "reasoning_content", None) or (raw_msg.get("reasoning_content") if isinstance(raw_msg, dict) else None)
+            if reasoning:
+                result.generations[0].message.additional_kwargs["reasoning_content"] = reasoning
+        return result
 
 class RepoAnalyzer:
     def __init__(self, repo_url: str, repo_id: int = None):
@@ -23,7 +47,7 @@ class RepoAnalyzer:
         # Resolve path relative to current working directory (server-friendly)
         self.local_path = os.path.abspath(os.path.join(settings.REPO_STORAGE_PATH, self.owner, self.repo_name))
         
-        self.llm = ChatOpenAI(
+        self.llm = DeepSeekChat(
             model=settings.DEEPSEEK_MODEL,
             openai_api_key=settings.DEEPSEEK_API_KEY,
             openai_api_base=settings.DEEPSEEK_BASE_URL,
@@ -107,8 +131,8 @@ class RepoAnalyzer:
             while iteration < max_iterations:
                 iteration += 1
                 
-                # 工具调用阶段使用指定的分析模型
-                chat_llm = ChatOpenAI(
+                # 工具调用阶段使用增强的 DeepSeekChat 类
+                chat_llm = DeepSeekChat(
                     model=settings.DEEPSEEK_ANALYSIS_MODEL,
                     openai_api_key=settings.DEEPSEEK_API_KEY,
                     openai_api_base=settings.DEEPSEEK_BASE_URL,
