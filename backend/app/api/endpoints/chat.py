@@ -84,7 +84,8 @@ async def ask_question(data: ChatRequest, session: Session = Depends(get_session
             if current_ai_msg and current_ai_msg.tool_calls:
                 messages.append(current_ai_msg)
                 for tool_call in current_ai_msg.tool_calls:
-                    yield f"data: {json.dumps({'text': f'... (using {tool_call['name']})'})}\n\n"
+                    tool_desc = f"... (using {tool_call['name']})"
+                    yield f"data: {json.dumps({'text': tool_desc})}\n\n"
                     if tool_call["name"] in analyzer.tools_map:
                         try:
                             output = analyzer.tools_map[tool_call["name"]].invoke(tool_args := tool_call["args"])
