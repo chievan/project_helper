@@ -93,10 +93,10 @@ const fetchHistory = async () => {
   }
 }
 
-const fetchTrending = async () => {
+const fetchTrending = async (force: boolean = false) => {
   isFetchingTrending.value = true
   try {
-    const res = await axios.get('/api/github/trending')
+    const res = await axios.get(`/api/github/trending${force ? '?refresh=true' : ''}`)
     trendingRepos.value = res.data
   } catch (err) {
     console.error('Failed to fetch trending:', err)
@@ -108,6 +108,10 @@ const fetchTrending = async () => {
 const quickAnalyze = (url: string) => {
   repoUrl.value = url
   submitRepo()
+}
+
+const openRepo = (url: string) => {
+  window.open(url, '_blank')
 }
 
 const deleteRepo = async (id: number, event: Event) => {
@@ -388,7 +392,7 @@ onMounted(() => {
               <h3 class="section-title flex items-center gap-2">
                 <Flame :size="16" class="text-orange-500" /> GitHub 今日热榜
               </h3>
-              <button @click="fetchTrending" class="text-xs text-gray-400 hover:text-green-500 flex items-center gap-1 transition-colors">
+              <button @click="fetchTrending(true)" class="text-xs text-gray-400 hover:text-green-500 flex items-center gap-1 transition-colors">
                 <TrendingUp :size="12" /> 刷新
               </button>
             </div>
@@ -399,13 +403,13 @@ onMounted(() => {
             </div>
 
             <div v-else class="trending-grid">
-              <div v-for="repo in trendingRepos" :key="repo.full_name" class="trending-card fade-in">
+              <div v-for="repo in trendingRepos" :key="repo.full_name" class="trending-card fade-in" @click="openRepo(repo.url)">
                 <div class="card-header">
                   <div class="repo-meta">
                     <span class="owner-name">{{ repo.owner }} /</span>
                     <h4 class="repo-title">{{ repo.name }}</h4>
                   </div>
-                  <button @click="quickAnalyze(repo.url)" class="quick-analyze-btn" title="立即分析">
+                  <button @click.stop="quickAnalyze(repo.url)" class="quick-analyze-btn" title="立即分析">
                     <Search :size="14" />
                   </button>
                 </div>
