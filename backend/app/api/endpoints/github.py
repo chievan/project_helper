@@ -16,9 +16,9 @@ CACHE_TTL = 3600  # 1小时缓存
 from app.core.config import settings
 
 @router.get("/trending")
-async def get_github_trending():
+async def get_github_trending(refresh: bool = False):
     now = time.time()
-    if cache["data"] and (now - cache["last_updated"] < CACHE_TTL):
+    if not refresh and cache["data"] and (now - cache["last_updated"] < CACHE_TTL):
         return cache["data"]
 
     # 支持通过配置指定加速域名或代理
@@ -43,19 +43,20 @@ async def get_github_trending():
             targets = [
                 (url, "html"),
                 ("https://gtrend.yapie.me/repositories", "json"),
-                ("https://api.gitterapp.com/repositories", "json")
+                ("https://github.com/trending?since=daily", "html"),
+                ("https://hub.nuaa.cf/trending", "html"),
             ]
             
             for target_url, mode in targets:
                 try:
-                    print(f"[Scraper] Trying to fetch from: {target_url} (Timeout: 20s)")
-                    response = await client.get(target_url, headers=headers, timeout=20.0)
+                    print(f"[Scraper] Trying to fetch from: {target_url} (Timeout: 10s)")
+                    response = await client.get(target_url, headers=headers, timeout=10.0)
                     print(f"[Scraper] Status: {response.status_code} for {target_url}")
                     
                     if response.status_code == 200:
                         if mode == "json":
                             data = response.json()
-                            for item in data[:12]:
+                            for item in data[:20]:
                                 results.append({
                                     "owner": item.get("author") or item.get("username") or "Unknown",
                                     "name": item.get("name") or "Unknown",
