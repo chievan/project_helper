@@ -108,7 +108,7 @@ class RepoAnalyzer:
             messages.append(HumanMessage(content="""调查环节已彻底结束，严禁调用任何工具或输出任何 < | DSML | > 标签！
             请根据目前的调查结果，直接输出那份「傻子也能懂」的完整中文分析报告。
             报告结构：项目概述、技术栈、目录结构、核心模块、数据流、设计模式、阅读建议。
-            使用生动的 Markdown 格式，多用比喻！"""))
+            使用生动的 Markdown 格式，多用比喻！文末保留项目地址和链接"""))
             
             final_report = ""
             async for chunk in self.llm.astream(messages):
