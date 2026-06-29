@@ -3,7 +3,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import axios from 'axios'
 import { 
   Clock, Code, Cpu, Layers, Terminal, AlertCircle, Trash2, ExternalLink,
-  MessageSquare, Send, Search, Github as GithubIcon, Loader2, Flame, TrendingUp, Star
+  MessageSquare, Send, Search, Github as GithubIcon, Loader2, Flame, TrendingUp, Star, Download
 } from 'lucide-vue-next'
 import { marked } from 'marked'
 
@@ -307,6 +307,45 @@ const scrollToBottom = () => {
   })
 }
 
+const downloadHTML = () => {
+  if (!report.value) return;
+  const htmlContent = marked(report.value);
+  const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>项目分析报告</title>
+<style>
+  body { font-family: sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; line-height: 1.6; color: #333; }
+  pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+  th { background: #f8f9fa; }
+  img { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>${htmlContent}</body>
+</html>`;
+  const blob = new Blob([fullHtml], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `report_${repoId.value || 'download'}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const downloadMarkdown = () => {
+  if (!report.value) return;
+  const blob = new Blob([report.value], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `report_${repoId.value || 'download'}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 onMounted(() => {
   fetchHistory()
   fetchTrending()
@@ -368,11 +407,21 @@ onMounted(() => {
     <!-- 中间主内容区 (5) -->
     <main class="main-content">
       <header class="panel-header">
-        <div class="repo-info">
+        <div class="repo-info" style="display: flex; align-items: center;">
           <GithubIcon v-if="repoId" :size="20" class="mr-2 inline text-gray-400" />
           <span class="font-bold text-lg">{{ repoId ? '项目分析报告' : '准备就绪' }}</span>
         </div>
-        <div v-if="isAnalyzing" class="progress-pill bg-gray-200 px-3 py-1 rounded-full text-xs flex items-center gap-2">
+        
+        <div class="header-actions" style="margin-left: auto; display: flex; gap: 0.5rem;" v-if="report && !isAnalyzing">
+          <button @click="downloadHTML" class="download-btn flex items-center gap-1 text-sm bg-white border border-gray-200 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors" style="cursor: pointer; border-radius: 6px; border: 1px solid #e5e7eb; background: white; padding: 4px 10px; display: flex; align-items: center; gap: 4px; font-size: 13px; color: #374151;">
+            <Download :size="14" /> HTML
+          </button>
+          <button @click="downloadMarkdown" class="download-btn flex items-center gap-1 text-sm bg-white border border-gray-200 px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors" style="cursor: pointer; border-radius: 6px; border: 1px solid #e5e7eb; background: white; padding: 4px 10px; display: flex; align-items: center; gap: 4px; font-size: 13px; color: #374151;">
+            <Download :size="14" /> Markdown
+          </button>
+        </div>
+
+        <div v-if="isAnalyzing" class="progress-pill bg-gray-200 px-3 py-1 rounded-full text-xs flex items-center gap-2" style="margin-left: auto;">
           <Loader2 class="animate-spin" :size="12" />
           {{ statusMap[currentStep] || '正在分析' }} ({{ Math.round(progress) }}%)
         </div>
